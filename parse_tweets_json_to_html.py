@@ -56,7 +56,7 @@ class ParseTweetsJSONtoHTML():
                 media_name = media_url.split("/")[-1]
                 user_image_path = f"images/tweets/{media_name}"
                 image_full_path = f"{self.output_html_directory}/{user_image_path}"
-                self.save_remote_media(media_name, image_full_path)
+                self.save_remote_media(media_url, image_full_path)
 
                 if "amplify_video_thumb" in media_url or "ext_tw_video_thumb" in media_url:
                     output_html += f"<div class='tweet_image'><video controls preload='none' poster='{user_image_path}' src='{user_video_path}'/></video></div>"
