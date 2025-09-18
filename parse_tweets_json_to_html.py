@@ -34,10 +34,10 @@ class ParseTweetsJSONtoHTML():
 
         output_html += '<div class="tweet_author_wrapper">'
         output_html += f"<div class='tweet_author_image'><img loading='lazy' src='{user_image_src}'></div>"
-        output_html += "<div class='author_context'><div class='tweet_author_handle'>"
-        output_html += f"<a href='https://www.twitter.com/{tweet_data['user_handle']}/' target='_blank'>"
-        output_html += f"@{self.parse_text_for_html(tweet_data['user_handle'])}</a></div>"
+        output_html += "<div class='author_context'>"
         output_html += f"<div class='tweet_author_name'>{self.parse_text_for_html(tweet_data['user_name'])}</div>"
+        output_html += f"<div class='tweet_author_handle'><a href='https://www.twitter.com/{tweet_data['user_handle']}/' target='_blank'>"
+        output_html += f"@{self.parse_text_for_html(tweet_data['user_handle'])}</a></div>"
         output_html += '</div></div>\n'
 
         output_html += f"<div class='tweet_content'>{self.parse_text_for_html(tweet_data['tweet_content'])}</div>"
