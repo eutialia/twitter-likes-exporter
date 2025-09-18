@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import requests
+from urllib.parse import urlparse
 
 class ParseTweetsJSONtoHTML():
     def __init__(self):
@@ -11,7 +12,6 @@ class ParseTweetsJSONtoHTML():
         with open("config.json") as json_data_file:
             config_data = json.load(json_data_file)
             self.output_json_file_path = config_data.get('OUTPUT_JSON_FILE_PATH')
-            self.download_images = config_data.get('DOWNLOAD_IMAGES')
 
     def write_tweets_to_html(self):
         with open(self.output_index_path, 'w') as output_html:
@@ -31,10 +31,10 @@ class ParseTweetsJSONtoHTML():
         if self.download_images:
             user_image_src = f'images/avatars/{tweet_data["user_id"]}.jpg'
             full_path = f"{self.output_html_directory}/{user_image_src}"
-            self.save_remote_image(tweet_data["user_avatar_url"], full_path)
+            self.save_remote_media(tweet_data["user_avatar_url"], full_path)
         else:
             user_image_src = tweet_data["user_avatar_url"]
-        
+
         output_html += '<div class="tweet_author_wrapper">'
         output_html += f"<div class='tweet_author_image'><img loading='lazy' src='{user_image_src}'></div>"
         output_html += "<div class='author_context'><div class='tweet_author_handle'>"
@@ -45,19 +45,35 @@ class ParseTweetsJSONtoHTML():
 
         output_html += f"<div class='tweet_content'>{self.parse_text_for_html(tweet_data['tweet_content'])}</div>"
 
-        if tweet_data["tweet_media_urls"]:
+        if tweet_data["tweet_video_urls"] and tweet_data["tweet_media_urls"]:
             output_html += "<div class='tweet_images_wrapper'>"
             for media_url in tweet_data["tweet_media_urls"]:
-                if self.download_images:
-                    media_name = media_url.split("/")[-1]
-                    user_image_path = f'images/tweets/{media_name}'
-                    full_path = f"{self.output_html_directory}/{user_image_path}"
-                    self.save_remote_image(media_url, full_path)
+                video_name = urlparse(tweet_data["tweet_video_urls"][-1]).path.split("/")[-1]
+                user_video_path = f"videos/tweets/{video_name}"
+                video_full_path = f"{self.output_html_directory}/{user_video_path}"
+                self.save_remote_media(
+                    tweet_data["tweet_video_urls"][-1], video_full_path
+                )
+
+                media_name = media_url.split("/")[-1]
+                user_image_path = f"images/tweets/{media_name}"
+                image_full_path = f"{self.output_html_directory}/{user_image_path}"
+                self.save_remote_media(media_name, image_full_path)
+
+                if "amplify_video_thumb" in media_url or "ext_tw_video_thumb" in media_url:
+                    output_html += f"<div class='tweet_image'><video controls preload='none' poster='{user_image_path}' src='{user_video_path}'/></video></div>"
                 else:
-                    user_image_path = media_url
+                    output_html += f"<div class='tweet_image'><a href='{user_image_path}' target='_blank'><img loading='lazy' src='{user_image_path}'></a></div>"
+            output_html += "</div>\n"
+        elif tweet_data["tweet_media_urls"]:
+            output_html += "<div class='tweet_images_wrapper'>"
+            for media_url in tweet_data["tweet_media_urls"]:
+                media_name = media_url.split("/")[-1]
+                user_image_path = f'images/tweets/{media_name}'
+                full_path = f"{self.output_html_directory}/{user_image_path}"
+                self.save_remote_media(media_url, full_path)
                 output_html += f"<div class='tweet_image'><a href='{user_image_path}' target='_blank'><img loading='lazy' src='{user_image_path}'></a></div>"
             output_html += "</div>\n"
-
 
         parsed_datetime = datetime.datetime.strptime(tweet_data['tweet_created_at'], "%a %b %d %H:%M:%S +0000 %Y")
         output_html += f"<div class='tweet_created_at'>{parsed_datetime.strftime('%m/%d/%Y %I:%M%p')}</div>"
@@ -69,7 +85,6 @@ class ParseTweetsJSONtoHTML():
 
         output_html += "</div>\n\n"
 
-        
         with open(individual_tweet_file_path, 'w') as individual_tweet_file:
             individual_tweet_file.write('<html><head>')
             individual_tweet_file.write('<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1.0, maximum-scale=1.0" />')
@@ -78,18 +93,19 @@ class ParseTweetsJSONtoHTML():
             individual_tweet_file.write('<body><div class="tweet_list">')
             adjusted_html = output_html.replace("images/avatars", "../images/avatars")
             adjusted_html = adjusted_html.replace("images/tweets", "../images/tweets")
+            adjusted_html = adjusted_html.replace("videos/tweets", "../videos/tweets")
             individual_tweet_file.write(adjusted_html)
             individual_tweet_file.write('</div></body></html>')
 
         return output_html
 
-    def save_remote_image(self, remote_url, local_path):
+    def save_remote_media(self, remote_url, local_path):
         if os.path.exists(local_path):
             return
-        print(f"Downloading image {remote_url}...")
-        img_data = requests.get(remote_url).content
+        print(f"Downloading media {remote_url}...")
+        media_data = requests.get(remote_url).content
         with open(local_path, 'wb') as handler:
-            handler.write(img_data)
+            handler.write(media_data)
 
     def parse_text_for_html(self,input_text):
         return input_text.encode('ascii', 'xmlcharrefreplace').decode()

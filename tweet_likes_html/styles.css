@@ -75,7 +75,10 @@ body {
      width:100%;
      margin-bottom:25px;
      margin-top:10px;
-     display:inline-block;
+     display:flex;
+     justify-content:left;
+     align-items:center;
+     flex-wrap:wrap;
 }
  .tweet_images_wrapper .tweet_image {
      display:inline-block;
@@ -84,7 +87,10 @@ body {
      overflow:hidden;
 }
  .tweet_images_wrapper .tweet_image img {
-     max-height:200px;
+     max-height:400px;
      max-width:400px;
 }
- 
+.tweet_images_wrapper .tweet_image video {
+     max-height:400px;
+     max-width:400px;
+}

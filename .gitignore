@@ -129,3 +129,7 @@ dmypy.json
 .pyre/
 
 liked_tweets.json
+tweet_likes_html/images
+tweet_likes_html/videos
+tweet_likes_html/tweets
+tweet_likes_html/index.html
