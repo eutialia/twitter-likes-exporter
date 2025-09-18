@@ -3,6 +3,7 @@ import json
 import os
 import requests
 from urllib.parse import urlparse
+from tzlocal import get_localzone
 
 class ParseTweetsJSONtoHTML():
     def __init__(self):
@@ -72,8 +73,10 @@ class ParseTweetsJSONtoHTML():
                 output_html += f"<div class='tweet_image'><a href='{user_image_path}' target='_blank'><img loading='lazy' src='{user_image_path}'></a></div>"
             output_html += "</div>\n"
 
-        parsed_datetime = datetime.datetime.strptime(tweet_data['tweet_created_at'], "%a %b %d %H:%M:%S +0000 %Y")
-        output_html += f"<div class='tweet_created_at'>{parsed_datetime.strftime('%m/%d/%Y %I:%M%p')}</div>"
+        parsed_datetime = datetime.datetime.strptime(
+            tweet_data["tweet_created_at"], "%a %b %d %H:%M:%S %z %Y"
+        ).astimezone(get_localzone())
+        output_html += f"<div class='tweet_created_at'>{parsed_datetime.strftime('%a %b %d %H:%M:%S %Y')}</div>"
         output_html += "<div class='twitter_link'>"
         output_html += f"<a href='https://www.twitter.com/{tweet_data['user_handle']}/status/{tweet_data['tweet_id']}/' target='_blank'>Original tweet &#8599;</a> &#8226; "
         individual_tweet_file_path = f"{self.output_html_directory}/tweets/{tweet_data['tweet_id']}.html"
@@ -132,4 +135,3 @@ if __name__ == "__main__":
     print(f"Saving tweets to {parser.output_index_path}...")
     parser.write_tweets_to_html()
     print(f"Done. Output file located at {parser.output_index_path}")
-
