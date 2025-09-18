@@ -28,12 +28,9 @@ class ParseTweetsJSONtoHTML():
     def create_tweet_html(self, tweet_data):
         output_html = '<div class="tweet_wrapper">'
 
-        if self.download_images:
-            user_image_src = f'images/avatars/{tweet_data["user_id"]}.jpg'
-            full_path = f"{self.output_html_directory}/{user_image_src}"
-            self.save_remote_media(tweet_data["user_avatar_url"], full_path)
-        else:
-            user_image_src = tweet_data["user_avatar_url"]
+        user_image_src = f'images/avatars/{tweet_data["user_id"]}.jpg'
+        full_path = f"{self.output_html_directory}/{user_image_src}"
+        self.save_remote_media(tweet_data["user_avatar_url"], full_path)
 
         output_html += '<div class="tweet_author_wrapper">'
         output_html += f"<div class='tweet_author_image'><img loading='lazy' src='{user_image_src}'></div>"
