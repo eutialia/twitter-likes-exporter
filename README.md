@@ -1,6 +1,6 @@
 # Twitter Likes Exporter
 
-Hacky Python scripts for downloading your Twitter likes and converting to HTML. Includes support for downloading user avatars and image media in tweets. Scrapes tweets using the GraphQL API powering Twitter.com - the equivalent of you scrolling through all your likes in your web browser, only saved locally forever!
+Hacky Python scripts for downloading your Twitter likes and converting to HTML. Includes support for downloading user avatars and image/video media in tweets. Scrapes tweets using the GraphQL API powering Twitter.com - the equivalent of you scrolling through all your likes in your web browser, only saved locally forever!
 
 ![example output rendered html of tweets](example_html_output.png)
 
@@ -60,6 +60,7 @@ The output JSON will be a list of dictionaries like the following:
       "user_avatar_url": "https://pbs.twimg.com/profile_images/1563330281838284805/aUtIY2vj_normal.jpg",
       "tweet_content":"What are you hiding in your locked instagram? sandwiches? Sunsets???? let us see your nephew!!!!",
       "tweet_media_urls": [],
+      "tweet_video_urls": [],
       "tweet_created_at": "Sun Mar 13 15:16:45 +0000 2011"
    }
 ]
@@ -70,7 +71,7 @@ The output JSON will be a list of dictionaries like the following:
 
 If you want your tweets as a local HTML file, you can run the second script to convert the output JSON file from the above step.
 
-NOTE: This will attempt to download all media images and tweet author avatars locally by default to avoid relying on Twitter hosting. You can override this by changing the `DOWNLOAD_IMAGES` boolean in `config.json` to `false`.
+NOTE: This will attempt to download all media images and videos and tweet author avatars locally by default to avoid relying on Twitter hosting.
 
 1. Be sure the `OUTPUT_JSON_FILE_PATH` value in `config.json` is pointing to the output JSON file of your tweets.
 2. Run:
@@ -79,4 +80,4 @@ NOTE: This will attempt to download all media images and tweet author avatars lo
 python parse_tweets_json_to_html.py
 ```
 
-This will download all images (if specified; saved to `tweet_likes_html/images`) and construct an HTML file at `tweet_likes_html/index.html` containing all liked tweets, as well as individual HTML files within `tweet_likes_html/tweets/`.
+This will download all images and videos (if specified; saved to `tweet_likes_html/images` and `tweet_likes_html/videos`) and construct an HTML file at `tweet_likes_html/index.html` containing all liked tweets, as well as individual HTML files within `tweet_likes_html/tweets/`.
