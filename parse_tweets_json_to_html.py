@@ -17,6 +17,7 @@ from tweet_parser import (
 
 DOWNLOAD_TIMEOUT_SECONDS = 30
 DOWNLOAD_WORKERS = 16
+DEFAULT_TWEETS_PER_PAGE = 200
 OUTPUT_SUBDIRS = ("images/avatars", "images/tweets", "videos/tweets", "tweets")
 
 
@@ -31,6 +32,7 @@ class ParseTweetsJSONtoHTML():
         with open("config.json") as json_data_file:
             config_data = json.load(json_data_file)
             self.output_json_file_path = config_data.get('OUTPUT_JSON_FILE_PATH')
+            self.tweets_per_page = int(config_data.get('TWEETS_PER_PAGE', DEFAULT_TWEETS_PER_PAGE))
 
         self.output_html_directory = os.path.join(os.path.dirname(__file__), 'tweet_likes_html')
 
@@ -54,17 +56,52 @@ class ParseTweetsJSONtoHTML():
             print(f"Downloading {len(tasks)} new media files via {DOWNLOAD_WORKERS} workers...")
             self._download_all(tasks)
 
-        with open(self.output_index_path, 'w', encoding='utf-8') as output_html:
-            output_html.write(self._html_head('styles.css', is_index=True))
-            output_html.write('<h1>Liked Tweets</h1><div class="tweet_list">')
-            for tweet_data in tweets:
-                output_html.write(self._render_and_save_tweet(tweet_data))
-            output_html.write('</div></body></html>')
+        per_page = max(1, self.tweets_per_page)
+        total_pages = max(1, (len(tweets) + per_page - 1) // per_page)
+        print(f"Rendering {len(tweets)} tweets across {total_pages} page(s) "
+              f"({per_page} per page)...")
+
+        for page_num in range(1, total_pages + 1):
+            start = (page_num - 1) * per_page
+            chunk = tweets[start:start + per_page]
+            self._write_page(page_num, total_pages, chunk)
 
         print(
             f"Per-tweet HTML: {self._written_tweet_files} written, "
             f"{self._cached_tweet_files} reused from cache."
         )
+
+    def _write_page(self, page_num, total_pages, chunk):
+        filename = 'index.html' if page_num == 1 else f'page-{page_num}.html'
+        path = os.path.join(self.output_html_directory, filename)
+        nav = self._pagination_nav(page_num, total_pages)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(self._html_head('styles.css', is_index=True))
+            f.write(f'<h1>Liked Tweets <span class="page_subtitle">page {page_num} / {total_pages}</span></h1>')
+            f.write(nav)
+            f.write('<div class="tweet_list">')
+            for tweet_data in chunk:
+                f.write(self._render_and_save_tweet(tweet_data))
+            f.write('</div>')
+            f.write(nav)
+            f.write('</body></html>')
+
+    @staticmethod
+    def _pagination_nav(current, total):
+        def link(label, target):
+            if target is None:
+                return f'<span class="pagination_disabled">{label}</span>'
+            return f'<a href="{target}">{label}</a>'
+
+        def page_url(n):
+            return 'index.html' if n == 1 else f'page-{n}.html'
+
+        first = link('« First', None if current == 1 else page_url(1))
+        prev = link('← Newer', None if current == 1 else page_url(current - 1))
+        nxt = link('Older →', None if current == total else page_url(current + 1))
+        last = link('Last »', None if current == total else page_url(total))
+        info = f'<span class="pagination_info">page {current} / {total}</span>'
+        return f'<div class="pagination">{first}{prev}{info}{nxt}{last}</div>'
 
     def _ensure_output_dirs(self):
         for sub in OUTPUT_SUBDIRS:
@@ -152,7 +189,8 @@ class ParseTweetsJSONtoHTML():
 
         media_items = tweet_data.get("tweet_media") or []
         if media_items:
-            output_html += "<div class='tweet_images_wrapper'>"
+            count_class = f"count-{len(media_items)}" if len(media_items) <= 4 else "count-many"
+            output_html += f"<div class='tweet_images_wrapper {count_class}'>"
             for item in media_items:
                 output_html += self._render_media_item(item)
             output_html += "</div>\n"

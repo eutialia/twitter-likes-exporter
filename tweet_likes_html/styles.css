@@ -1,51 +1,77 @@
 body {
      background-color:#eee;
-     padding:2em 10em;
+     padding:2em 4em;
      font-family:Helvetica;
 }
+.page_subtitle {
+     font-size:0.5em;
+     font-weight:normal;
+     color:#95a5a6;
+     margin-left:10px;
+}
+.pagination {
+     margin:20px 0;
+     text-align:center;
+     font-size:0.95em;
+}
+.pagination a, .pagination_disabled, .pagination_info {
+     padding:6px 10px;
+     display:inline-block;
+}
+.pagination a {
+     color:#3498db;
+     text-decoration:none;
+}
+.pagination a:hover { text-decoration:underline; }
+.pagination_disabled { color:#ccc; }
+.pagination_info { color:#7f8c8d; font-weight:bold; }
+
  .tweet_list {
-     width:100%;
+     column-count:3;
+     column-gap:20px;
+}
+@media (max-width: 1400px) {
+     .tweet_list { column-count:2; }
+}
+@media (max-width: 900px) {
+     .tweet_list { column-count:1; }
+     body { padding:1em; }
 }
  .tweet_wrapper {
-     width:95%;
+     width:100%;
      display:inline-block;
-     padding-top:15px;
-     padding-bottom:15px;
-     padding-left:2%;
-     padding-right:2%;
+     box-sizing:border-box;
+     padding:15px;
      border:1px solid #ccc;
-     margin-bottom:30px;
+     margin:0 0 20px 0;
      background-color:#fff;
-     /* Skip layout/paint for off-screen tweets — drops memory & enables smooth
-        scrolling in Safari. Intrinsic size is a rough estimate; the browser
-        replaces it with the real height once the element scrolls into view. */
-     content-visibility: auto;
-     contain-intrinsic-size: auto 600px;
+     /* All three for max browser compatibility — keeps a tweet from being
+        split across columns. Required because video/grid children otherwise
+        escape the wrapper when column-count rebalances. */
+     break-inside:avoid;
+     page-break-inside:avoid;
+     -webkit-column-break-inside:avoid;
 }
  .tweet_author_wrapper {
      width:100%;
-     display:inline-block;
-     vertical-align:top;
+     display:flex;
+     align-items:flex-start;
      min-height:48px;
 }
  .tweet_author_image {
      width:48px;
      height:48px;
-     display:inline-block;
+     flex-shrink:0;
      border-radius:24px;
      overflow:hidden;
      border:1px solid #ccc;
 }
  .author_context {
-     display:inline-block;
      margin-top:5px;
      margin-left:10px;
-     vertical-align:top;
 }
  .tweet_author_handle {
-     display:inline-block;
      font-size:0.8em;
-     width:100%;
 }
  .tweet_author_handle, .tweet_author_handle a {
      color:#95a5a6;
@@ -53,49 +79,75 @@ body {
  .tweet_author_name {
      font-weight:bold;
      font-size:0.9em;
-     width:100%;
 }
  .tweet_content {
-     width:100%;
      margin-top:15px;
      margin-bottom:15px;
-     display:inline-block;
-     font-size:1.0em;
+     font-size:1em;
+     white-space:pre-wrap;
+     word-wrap:break-word;
 }
  .tweet_created_at {
-     width:100%;
-     display:inline-block;
-     font-size:0.9em;
+     font-size:0.85em;
      color:#95a5a6;
+     margin-top:10px;
 }
  .twitter_link {
-     width:100%;
-     display:inline-block;
+     margin-top:5px;
 }
  .twitter_link, .twitter_link a {
-     font-size:0.9em;
+     font-size:0.85em;
      color:#3498db;
 }
+
  .tweet_images_wrapper {
      width:100%;
-     margin-bottom:25px;
-     margin-top:10px;
-     display:flex;
-     justify-content:left;
-     align-items:center;
-     flex-wrap:wrap;
-}
- .tweet_images_wrapper .tweet_image {
-     display:inline-block;
-     margin-right:15px;
-     margin-top:15px;
+     margin:10px 0 5px 0;
+     display:grid;
+     gap:4px;
+     border-radius:6px;
      overflow:hidden;
 }
- .tweet_images_wrapper .tweet_image img {
-     max-height:400px;
-     max-width:400px;
+ .tweet_images_wrapper.count-1 { grid-template-columns:1fr; }
+ .tweet_images_wrapper.count-2 {
+     grid-template-columns:1fr 1fr;
+     aspect-ratio:16 / 9;
 }
-.tweet_images_wrapper .tweet_image video {
-     max-height:400px;
-     max-width:400px;
+ .tweet_images_wrapper.count-3 {
+     grid-template-columns:1fr 1fr;
+     grid-template-rows:1fr 1fr;
+     aspect-ratio:16 / 9;
+}
+ .tweet_images_wrapper.count-3 .tweet_image:first-child { grid-row:span 2; }
+ .tweet_images_wrapper.count-4 {
+     grid-template-columns:1fr 1fr;
+     grid-template-rows:1fr 1fr;
+     aspect-ratio:1 / 1;
+}
+ .tweet_images_wrapper.count-many { grid-template-columns:1fr 1fr; }
+
+ .tweet_images_wrapper .tweet_image {
+     overflow:hidden;
+     min-width:0;
+     min-height:0;
+}
+ .tweet_images_wrapper .tweet_image a {
+     display:block;
+     width:100%;
+     height:100%;
+}
+ .tweet_images_wrapper.count-1 .tweet_image img,
+ .tweet_images_wrapper.count-1 .tweet_image video {
+     width:100%;
+     height:auto;
+     max-height:600px;
+     object-fit:contain;
+     display:block;
+}
+ .tweet_images_wrapper:not(.count-1) .tweet_image img,
+ .tweet_images_wrapper:not(.count-1) .tweet_image video {
+     width:100%;
+     height:100%;
+     object-fit:cover;
+     display:block;
 }
