@@ -2,7 +2,12 @@ import re
 from urllib.parse import urlparse
 
 
-VIDEO_THUMB_KEYWORDS = ("amplify_video_thumb", "ext_tw_video_thumb", "tweet_video_thumb")
+MEDIA_TYPE_PHOTO = "photo"
+MEDIA_TYPE_VIDEO = "video"
+MEDIA_TYPE_ANIMATED_GIF = "animated_gif"
+_VIDEO_MEDIA_TYPES = {MEDIA_TYPE_VIDEO, MEDIA_TYPE_ANIMATED_GIF}
+
+_RESOLUTION_RE = re.compile(r"/(\d+)x(\d+)/")
 
 
 def _media_key(url):
@@ -20,10 +25,10 @@ def _media_key(url):
 
 def _classify_thumb(url):
     if "tweet_video_thumb" in url:
-        return "animated_gif"
+        return MEDIA_TYPE_ANIMATED_GIF
     if "amplify_video_thumb" in url or "ext_tw_video_thumb" in url:
-        return "video"
-    return "photo"
+        return MEDIA_TYPE_VIDEO
+    return MEDIA_TYPE_PHOTO
 
 
 def _best_mp4_variant(variants):
@@ -35,7 +40,7 @@ def _best_mp4_variant(variants):
 
 
 def _resolution_score(url):
-    m = re.search(r"/(\d+)x(\d+)/", url)
+    m = _RESOLUTION_RE.search(url)
     return int(m.group(1)) * int(m.group(2)) if m else 0
 
 
@@ -57,14 +62,13 @@ def migrate_legacy_tweet_schema(tweet):
     for thumb in media_urls:
         media_type = _classify_thumb(thumb)
         video_url = None
-        if media_type != "photo":
+        if media_type != MEDIA_TYPE_PHOTO:
             thumb_key = _media_key(thumb)
             mp4s = [
                 v for v in video_urls
                 if (v.endswith(".mp4") or "/vid/" in v) and _media_key(v) == thumb_key
             ]
             if not mp4s:
-                # animated_gif sometimes has only one variant; fall back broadly
                 mp4s = [v for v in video_urls if _media_key(v) == thumb_key]
             if mp4s:
                 video_url = max(mp4s, key=_resolution_score)
@@ -74,23 +78,35 @@ def migrate_legacy_tweet_schema(tweet):
     return tweet
 
 
-class TweetParser():
-    def __init__(self, raw_tweet_json):
-        self.is_valid_tweet = True
-        self.raw_tweet_json = raw_tweet_json
-        self._media = None
+def migrate_tweet_list(tweets):
+    """Migrate every legacy-schema entry in-place. Returns the count migrated."""
+    count = 0
+    for tweet in tweets:
+        if "tweet_media" not in tweet and (
+            "tweet_media_urls" in tweet or "tweet_video_urls" in tweet
+        ):
+            migrate_legacy_tweet_schema(tweet)
+            count += 1
+    return count
 
-        item_content = raw_tweet_json.get("content", {}).get("itemContent")
+
+class TweetParser:
+    """Wraps a single timeline entry. Construct via `from_raw_entry`."""
+
+    @classmethod
+    def from_raw_entry(cls, raw_entry):
+        """Return a parser for a valid tweet entry, or None if unparseable."""
+        item_content = raw_entry.get("content", {}).get("itemContent")
         if not item_content:
-            self.is_valid_tweet = False
-            return
-
+            return None
         result = item_content.get("tweet_results", {}).get("result")
         if not result or not result.get("legacy"):
-            self.is_valid_tweet = False
-            return
+            return None
+        return cls(result)
 
-        self.key_data = result
+    def __init__(self, key_data):
+        self._key_data = key_data
+        self._media = None
 
     def tweet_as_json(self):
         return {
@@ -106,42 +122,42 @@ class TweetParser():
 
     @property
     def tweet_id(self):
-        return self.key_data["legacy"]["id_str"]
+        return self._key_data["legacy"]["id_str"]
 
     @property
     def tweet_content(self):
-        return self.key_data["legacy"]["full_text"]
+        return self._key_data["legacy"]["full_text"]
 
     @property
     def tweet_created_at(self):
-        return self.key_data["legacy"]["created_at"]
+        return self._key_data["legacy"]["created_at"]
 
     @property
     def user_id(self):
-        return self.key_data["legacy"]["user_id_str"]
+        return self._key_data["legacy"]["user_id_str"]
 
     @property
     def user_handle(self):
-        return self.user_data["screen_name"]
+        return self._user_data["screen_name"]
 
     @property
     def user_name(self):
-        return self.user_data["name"]
+        return self._user_data["name"]
 
     @property
     def user_avatar_url(self):
-        return self.user_data["profile_image_url_https"]
+        return self._user_data["profile_image_url_https"]
 
     @property
-    def user_data(self):
-        return self.key_data["core"]["user_results"]["result"]["legacy"]
+    def _user_data(self):
+        return self._key_data["core"]["user_results"]["result"]["legacy"]
 
     @property
     def media(self):
         if self._media is not None:
             return self._media
 
-        legacy = self.key_data["legacy"]
+        legacy = self._key_data["legacy"]
         # extended_entities.media is the complete list (up to 4 items) and
         # includes type info; entities.media is the legacy first-only view.
         source = legacy.get("extended_entities") or legacy.get("entities") or {}
@@ -149,13 +165,13 @@ class TweetParser():
 
         items = []
         for entry in entries:
-            media_type = entry.get("type", "photo")
+            media_type = entry.get("type", MEDIA_TYPE_PHOTO)
             item = {
                 "type": media_type,
                 "thumbnail_url": entry["media_url_https"],
                 "video_url": None,
             }
-            if media_type in ("video", "animated_gif") and "video_info" in entry:
+            if media_type in _VIDEO_MEDIA_TYPES and "video_info" in entry:
                 item["video_url"] = _best_mp4_variant(entry["video_info"]["variants"])
             items.append(item)
 

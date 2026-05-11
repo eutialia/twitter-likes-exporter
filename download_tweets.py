@@ -5,12 +5,12 @@ import time
 
 import requests
 
-from tweet_parser import TweetParser, migrate_legacy_tweet_schema
+from tweet_parser import TweetParser, migrate_tweet_list
 
 REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_DELAY_MIN = 1.0
 DEFAULT_DELAY_MAX = 15.0
-DEFAULT_DELAY_PEAK_RATIO = 0.15  # mode of triangular dist inside [min, max]
+DELAY_PEAK_RATIO = 0.15  # mode of triangular dist inside [min, max]
 
 
 class TweetDownloader():
@@ -26,6 +26,11 @@ class TweetDownloader():
             self.delay_min = float(config_data.get('REQUEST_DELAY_MIN', DEFAULT_DELAY_MIN))
             self.delay_max = float(config_data.get('REQUEST_DELAY_MAX', DEFAULT_DELAY_MAX))
             self.force_refetch = bool(config_data.get('FORCE_FULL_REFETCH', False))
+
+        lo, hi = sorted((max(self.delay_min, 0.0), max(self.delay_max, 0.0)))
+        self._delay_lo = lo
+        self._delay_hi = hi
+        self._delay_peak = lo + DELAY_PEAK_RATIO * (hi - lo)
 
     def retrieve_all_likes(self):
         existing_tweets = [] if self.force_refetch else self._load_existing_tweets()
@@ -49,11 +54,11 @@ class TweetDownloader():
             )
             current_page += 1
             for raw_tweet in likes_page:
-                tweet_parser = TweetParser(raw_tweet)
-                if not tweet_parser.is_valid_tweet:
+                parser = TweetParser.from_raw_entry(raw_tweet)
+                if parser is None:
                     continue
                 try:
-                    tid = tweet_parser.tweet_id
+                    tid = parser.tweet_id
                 except KeyError:
                     continue
                 if tid in existing_ids:
@@ -61,12 +66,12 @@ class TweetDownloader():
                     reached_known = True
                     break
                 try:
-                    new_tweets.append(tweet_parser.tweet_as_json())
+                    new_tweets.append(parser.tweet_as_json())
                     existing_ids.add(tid)
                 except KeyError:
                     print(
                         f"KeyError while parsing tweet: "
-                        f"https://x.com/{tweet_parser.user_handle}/status/{tid}"
+                        f"https://x.com/{parser.user_handle}/status/{tid}"
                     )
                     continue
             if reached_known:
@@ -78,7 +83,7 @@ class TweetDownloader():
 
         combined = new_tweets + existing_tweets
         with open(self.output_json_file_path, 'w') as f:
-            f.write(json.dumps(combined))
+            json.dump(combined, f)
         print(
             f"Saved {len(combined)} total tweets "
             f"({len(new_tweets)} newly fetched, {len(existing_tweets)} preserved)."
@@ -95,11 +100,7 @@ class TweetDownloader():
             return []
         if not isinstance(data, list):
             return []
-        migrated = 0
-        for tweet in data:
-            if "tweet_media" not in tweet and ("tweet_media_urls" in tweet or "tweet_video_urls" in tweet):
-                migrate_legacy_tweet_schema(tweet)
-                migrated += 1
+        migrated = migrate_tweet_list(data)
         if migrated:
             print(f"Migrated {migrated} tweets from legacy schema in memory.")
         return data
@@ -125,16 +126,11 @@ class TweetDownloader():
         return page_json[-1].get('content', {}).get('value')
 
     def _sleep_before_next_request(self):
-        lo, hi = self.delay_min, self.delay_max
-        if hi <= 0:
+        if self._delay_hi <= 0:
             return
-        if lo > hi:
-            lo, hi = hi, lo
-        lo = max(lo, 0.0)
         # Triangular biased toward the short end: behaves like a fast scroll
         # most of the time with the occasional longer pause.
-        peak = lo + DEFAULT_DELAY_PEAK_RATIO * (hi - lo)
-        delay = random.triangular(lo, hi, peak)
+        delay = random.triangular(self._delay_lo, self._delay_hi, self._delay_peak)
         print(f"  sleeping {delay:.1f}s before next page request...")
         time.sleep(delay)
 
