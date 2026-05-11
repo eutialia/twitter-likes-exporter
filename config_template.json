@@ -3,5 +3,8 @@
     "HEADER_AUTHORIZATION": "Bearer SOME_AUTH_TOKEN",
     "HEADER_COOKIES": "cookies_from_request",
     "HEADER_CSRF": "csrf_from_request",
-    "OUTPUT_JSON_FILE_PATH": "liked_tweets.json"
+    "OUTPUT_JSON_FILE_PATH": "liked_tweets.json",
+    "REQUEST_DELAY_MIN": 1,
+    "REQUEST_DELAY_MAX": 15,
+    "FORCE_FULL_REFETCH": false
 }

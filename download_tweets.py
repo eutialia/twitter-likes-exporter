@@ -1,12 +1,21 @@
 import json
+import os
+import random
+import time
+
 import requests
 
-from tweet_parser import TweetParser
+from tweet_parser import TweetParser, migrate_legacy_tweet_schema
+
+REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_DELAY_MIN = 1.0
+DEFAULT_DELAY_MAX = 15.0
+DEFAULT_DELAY_PEAK_RATIO = 0.15  # mode of triangular dist inside [min, max]
+
 
 class TweetDownloader():
 
     def __init__(self):
-        # Load in user specific data from config.json file
         with open("config.json") as json_data_file:
             config_data = json.load(json_data_file)
             self.twitter_user_id = config_data.get('USER_ID')
@@ -14,35 +23,86 @@ class TweetDownloader():
             self.header_cookie = config_data.get('HEADER_COOKIES')
             self.header_csrf = config_data.get('HEADER_CSRF')
             self.output_json_file_path = config_data.get('OUTPUT_JSON_FILE_PATH')
+            self.delay_min = float(config_data.get('REQUEST_DELAY_MIN', DEFAULT_DELAY_MIN))
+            self.delay_max = float(config_data.get('REQUEST_DELAY_MAX', DEFAULT_DELAY_MAX))
+            self.force_refetch = bool(config_data.get('FORCE_FULL_REFETCH', False))
 
     def retrieve_all_likes(self):
-        all_tweets = []
+        existing_tweets = [] if self.force_refetch else self._load_existing_tweets()
+        existing_ids = {t["tweet_id"] for t in existing_tweets}
+        if existing_tweets:
+            print(f"Loaded {len(existing_tweets)} previously-fetched tweets; will stop at first known ID.")
+        elif self.force_refetch:
+            print("FORCE_FULL_REFETCH set — ignoring existing data.")
 
+        new_tweets = []
         likes_page = self.retrieve_likes_page()
         page_cursor = self.get_cursor(likes_page)
         old_page_cursor = None
         current_page = 1
+        reached_known = False
 
-        while likes_page and page_cursor and page_cursor != old_page_cursor:
+        while likes_page and page_cursor and page_cursor != old_page_cursor and not reached_known:
             print(
-                f"Fetching likes page: {current_page} (already collected {len(all_tweets)} tweets)"
+                f"Fetching likes page: {current_page} "
+                f"(collected {len(new_tweets)} new tweets so far)"
             )
             current_page += 1
             for raw_tweet in likes_page:
+                tweet_parser = TweetParser(raw_tweet)
+                if not tweet_parser.is_valid_tweet:
+                    continue
                 try:
-                    tweet_parser = TweetParser(raw_tweet)
-                    if tweet_parser.is_valid_tweet:
-                        all_tweets.append(tweet_parser.tweet_as_json())
+                    tid = tweet_parser.tweet_id
                 except KeyError:
-                    # TODO We should have an option to dump such tweet structures
-                    print(f"KeyError while parsing this tweet: https://x.com/{tweet_parser.user_handle}/status/{tweet_parser.tweet_id}")
-                    pass  # Ignore tweets that are not of interest to us.
+                    continue
+                if tid in existing_ids:
+                    print(f"  reached previously-fetched tweet {tid}; stopping pagination.")
+                    reached_known = True
+                    break
+                try:
+                    new_tweets.append(tweet_parser.tweet_as_json())
+                    existing_ids.add(tid)
+                except KeyError:
+                    print(
+                        f"KeyError while parsing tweet: "
+                        f"https://x.com/{tweet_parser.user_handle}/status/{tid}"
+                    )
+                    continue
+            if reached_known:
+                break
             old_page_cursor = page_cursor
+            self._sleep_before_next_request()
             likes_page = self.retrieve_likes_page(cursor=page_cursor)
             page_cursor = self.get_cursor(likes_page)
 
+        combined = new_tweets + existing_tweets
         with open(self.output_json_file_path, 'w') as f:
-            f.write(json.dumps(all_tweets))
+            f.write(json.dumps(combined))
+        print(
+            f"Saved {len(combined)} total tweets "
+            f"({len(new_tweets)} newly fetched, {len(existing_tweets)} preserved)."
+        )
+
+    def _load_existing_tweets(self):
+        if not self.output_json_file_path or not os.path.exists(self.output_json_file_path):
+            return []
+        try:
+            with open(self.output_json_file_path, 'rb') as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Could not load existing tweets ({e}); starting fresh.")
+            return []
+        if not isinstance(data, list):
+            return []
+        migrated = 0
+        for tweet in data:
+            if "tweet_media" not in tweet and ("tweet_media_urls" in tweet or "tweet_video_urls" in tweet):
+                migrate_legacy_tweet_schema(tweet)
+                migrated += 1
+        if migrated:
+            print(f"Migrated {migrated} tweets from legacy schema in memory.")
+        return data
 
     def retrieve_likes_page(self, cursor=None):
         likes_url = 'https://api.twitter.com/graphql/QK8AVO3RpcnbLPKXLAiVog/Likes'
@@ -51,7 +111,8 @@ class TweetDownloader():
         response = requests.get(
             likes_url,
             params={"variables": variables_data_encoded, "features": features_data_encoded},
-            headers=self.likes_request_headers()
+            headers=self.likes_request_headers(),
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
         return self.extract_likes_entries(response.json())
 
@@ -59,7 +120,23 @@ class TweetDownloader():
         return raw_data['data']['user']['result']['timeline_v2']['timeline']['instructions'][0]['entries']
 
     def get_cursor(self, page_json):
-        return page_json[-1]['content']['value']
+        if not page_json:
+            return None
+        return page_json[-1].get('content', {}).get('value')
+
+    def _sleep_before_next_request(self):
+        lo, hi = self.delay_min, self.delay_max
+        if hi <= 0:
+            return
+        if lo > hi:
+            lo, hi = hi, lo
+        lo = max(lo, 0.0)
+        # Triangular biased toward the short end: behaves like a fast scroll
+        # most of the time with the occasional longer pause.
+        peak = lo + DEFAULT_DELAY_PEAK_RATIO * (hi - lo)
+        delay = random.triangular(lo, hi, peak)
+        print(f"  sleeping {delay:.1f}s before next page request...")
+        time.sleep(delay)
 
     def likes_request_variables_data(self, cursor=None):
         variables_data = {

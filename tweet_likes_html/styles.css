@@ -16,6 +16,11 @@ body {
      border:1px solid #ccc;
      margin-bottom:30px;
      background-color:#fff;
+     /* Skip layout/paint for off-screen tweets — drops memory & enables smooth
+        scrolling in Safari. Intrinsic size is a rough estimate; the browser
+        replaces it with the real height once the element scrolls into view. */
+     content-visibility: auto;
+     contain-intrinsic-size: auto 600px;
 }
  .tweet_author_wrapper {
      width:100%;
