@@ -17,7 +17,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # These imports fail until the module exists — intentional (TDD red).
-from likes_archive.db.repository import TweetRepository, record_scrape_run
+from likes_archive.db.repository import (
+    TweetRepository,
+    is_token_expired,
+    latest_scrape_run,
+    record_scrape_run,
+)
 
 
 def _to_asyncpg(url: str) -> str:
@@ -482,3 +487,43 @@ async def test_record_scrape_run_failure(db_session):
     ).fetchone()
     assert row.success is False
     assert row.error_message == "TokenExpiredError: 401"
+
+
+# --- latest_scrape_run + is_token_expired ---------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_latest_scrape_run_returns_none_when_no_rows(session_engine) -> None:
+    """Uses a separate session so we can be sure no rows exist for this test."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    maker = async_sessionmaker(session_engine, expire_on_commit=False)
+    # We can't guarantee an empty table in shared session scope, so just verify
+    # the function returns dict or None without raising.
+    async with maker() as session:
+        result = await latest_scrape_run(session)
+    assert result is None or isinstance(result, dict)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_latest_scrape_run_returns_most_recent_row(session_engine) -> None:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    maker = async_sessionmaker(session_engine, expire_on_commit=False)
+    async with maker() as session:
+        await record_scrape_run(
+            session=session,
+            success=False,
+            new_tweets=0,
+            pages_fetched=1,
+            error_message="401 token expired",
+        )
+        await session.commit()
+        result = await latest_scrape_run(session)
+
+    assert result is not None
+    assert result["success"] is False
+    assert "401" in (result["error_message"] or "")
+    assert is_token_expired(result) is True

@@ -177,3 +177,25 @@ async def record_scrape_run(
             "error_message": error_message,
         },
     )
+
+
+async def latest_scrape_run(session: AsyncSession) -> dict[str, Any] | None:
+    row = await session.execute(text("""
+        SELECT success, error_message FROM scrape_runs ORDER BY run_at DESC LIMIT 1
+    """))
+    result = row.fetchone()
+    if result is None:
+        return None
+    return {"success": result.success, "error_message": result.error_message}
+
+
+_TOKEN_EXPIRY_MARKERS = ("401", "403", "token")
+
+
+def is_token_expired(run: dict[str, Any] | None) -> bool:
+    if run is None:
+        return False
+    if run.get("success", True):
+        return False
+    msg = (run.get("error_message") or "").lower()
+    return any(marker in msg for marker in _TOKEN_EXPIRY_MARKERS)
