@@ -45,3 +45,13 @@ def test_avatar_without_user_id_raises() -> None:
 def test_unknown_asset_type_raises() -> None:
     with pytest.raises(ValueError):
         media_key_for("https://pbs.twimg.com/media/X.jpg", "bogus")  # type: ignore[arg-type]
+
+
+def test_empty_basename_raises() -> None:
+    with pytest.raises(ValueError, match="empty basename"):
+        media_key_for("https://pbs.twimg.com/media/", "thumb")
+
+
+def test_video_key_strips_query_string() -> None:
+    url = "https://video.twimg.com/ext_tw_video/123/pu/vid/clip.mp4?tag=12"
+    assert media_key_for(url, "video") == "videos/tweets/clip.mp4"

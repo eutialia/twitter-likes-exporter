@@ -74,7 +74,10 @@ class MediaDownloader:
         if not missing:
             return
 
-        await asyncio.gather(*(self._fetch_and_store(*t) for t in missing))
+        await asyncio.gather(
+            *(self._fetch_and_store(*t) for t in missing),
+            return_exceptions=True,
+        )
 
     async def _fetch_and_store(
         self,
@@ -97,7 +100,11 @@ class MediaDownloader:
                 return
             data = response.content
 
-        self._store.put(key, data)
+        try:
+            self._store.put(key, data)
+        except (httpx.HTTPError, OSError) as exc:
+            logger.warning("Failed to store %s (key=%s): %s", url, key, exc)
+            return
 
         if item is not None and kind in (_TYPE_PHOTO, _TYPE_GIF):
             _patch_dimensions(item, data)

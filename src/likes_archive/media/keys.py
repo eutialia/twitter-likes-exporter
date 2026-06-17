@@ -45,6 +45,8 @@ def media_key_for(
         return f"images/avatars/{user_id}.jpg"
 
     basename = posixpath.basename(urlparse(url).path)
+    if not basename:
+        raise ValueError(f"cannot derive media key: empty basename in URL {url!r}")
     if asset_type == "thumb":
         return f"images/tweets/{basename}"
     if asset_type == "video":

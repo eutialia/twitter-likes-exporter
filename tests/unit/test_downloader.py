@@ -371,3 +371,51 @@ async def test_multi_media_tweet_completes_concurrently(tmp_path: Path) -> None:
 
     for u in urls:
         assert store.exists(media_key_for(u, "thumb"))
+
+
+@respx.mock
+async def test_store_put_failure_is_isolated(tmp_path: Path) -> None:
+    """OSError from store.put for one asset must not abort sibling downloads."""
+    photo_url_1 = "https://pbs.twimg.com/media/First.jpg"
+    photo_url_2 = "https://pbs.twimg.com/media/Second.jpg"
+    key_1 = media_key_for(photo_url_1, "thumb")
+    key_2 = media_key_for(photo_url_2, "thumb")
+
+    png = _make_png_bytes()
+    respx.get(url__startswith="https://pbs.twimg.com/media/First").mock(
+        return_value=httpx.Response(200, content=png)
+    )
+    respx.get(url__startswith="https://pbs.twimg.com/media/Second").mock(
+        return_value=httpx.Response(200, content=png)
+    )
+    respx.get(AVATAR_URL).mock(return_value=httpx.Response(200, content=b"av"))
+
+    store = _store(tmp_path)
+
+    # Make put raise OSError for key_1 only; succeed normally for everything else.
+    real_put = store.put
+
+    def failing_put(key: str, data: bytes) -> None:
+        if key == key_1:
+            raise OSError("disk full")
+        real_put(key, data)
+
+    store.put = failing_put  # type: ignore[method-assign]
+
+    tweet = {
+        "user_id": "user42",
+        "user_avatar_url": AVATAR_URL,
+        "tweet_media": [
+            {"type": "photo", "thumbnail_url": photo_url_1, "video_url": None},
+            {"type": "photo", "thumbnail_url": photo_url_2, "video_url": None},
+        ],
+        "quoted_tweet": None,
+    }
+
+    async with httpx.AsyncClient() as client:
+        dl = MediaDownloader(store=store, client=client, settings=_make_settings(tmp_path))
+        # (a) must not raise even though put failed for key_1
+        await dl.download_for_tweet(tweet)
+
+    # (b) second asset was still put successfully
+    assert store.exists(key_2)

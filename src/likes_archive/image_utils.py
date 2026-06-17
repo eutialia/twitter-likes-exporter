@@ -19,6 +19,10 @@ def full_quality_photo_url(url: str) -> str:
     upgraded; everything else (videos, avatars, non-pbs URLs, already-upgraded
     URLs) passes through unchanged. ``jpeg`` is normalised to ``jpg`` because
     that is what Twitter's CDN accepts. The transform is idempotent.
+
+    Precondition: *url* must be a bare CDN media URL with no query string;
+    callers pass ``media_url_https`` from the tweet parser, which carries no
+    query string.
     """
     if not url.startswith(PBS_MEDIA_PREFIX):
         return url

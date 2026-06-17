@@ -74,12 +74,12 @@ def test_put_temp_file_lives_in_same_directory_as_dest(
 def test_put_cleans_up_temp_on_rename_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If os.rename raises mid-write, the temp file is removed and the error propagates."""
+    """If os.replace raises mid-write, the temp file is removed and the error propagates."""
 
     def boom(src: str, dst: str) -> None:
-        raise OSError("rename failed")
+        raise OSError("replace failed")
 
-    monkeypatch.setattr(os, "rename", boom)
+    monkeypatch.setattr(os, "replace", boom)
     store = make_store(tmp_path)
     with pytest.raises(OSError):
         store.put("images/tweets/abc.jpg", b"data")

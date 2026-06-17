@@ -85,7 +85,7 @@ class FilesystemMediaStore(MediaStore):
         """Write *data* at *key* atomically.
 
         The temp file is created in ``dest.parent`` (same directory, same NFS
-        export) so ``os.rename()`` is atomic and a half-written file is never
+        export) so ``os.replace()`` is atomic and a half-written file is never
         visible under its final key. Any exception removes the temp file.
         """
         dest = self._media_root / key
@@ -94,7 +94,7 @@ class FilesystemMediaStore(MediaStore):
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
-            os.rename(tmp, dest)
+            os.replace(tmp, dest)
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
