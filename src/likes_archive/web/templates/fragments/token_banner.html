@@ -1,0 +1,10 @@
+<div id="token-status-banner"
+     hx-get="/internal/token-status"
+     hx-trigger="every 60s"
+     hx-swap="outerHTML">
+  {% if token_expired %}
+  <div class="token-expired-banner">
+    &#9888; Twitter token expired — scraping is paused. Please refresh your credentials.
+  </div>
+  {% endif %}
+</div>
