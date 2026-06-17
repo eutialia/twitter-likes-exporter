@@ -1,0 +1,60 @@
+{
+  "entryId": "tweet-5555555555555555555",
+  "content": {
+    "itemContent": {
+      "tweet_results": {
+        "result": {
+          "legacy": {
+            "id_str": "5555555555555555555",
+            "full_text": "Great point here https://t.co/quotelink",
+            "created_at": "Thu Jan 04 14:00:00 +0000 2024",
+            "user_id_str": "100000005",
+            "extended_entities": { "media": [] },
+            "entities": { "urls": [] },
+            "quoted_status_permalink": {
+              "url": "https://t.co/quotelink",
+              "expanded": "https://twitter.com/quoteduser/status/6666666666666666666",
+              "display": "twitter.com/quoteduser/sta…"
+            }
+          },
+          "core": {
+            "user_results": {
+              "result": {
+                "legacy": {
+                  "screen_name": "parentuser",
+                  "name": "Parent User",
+                  "profile_image_url_https": "https://pbs.twimg.com/profile_images/100000005/avatar.jpg"
+                }
+              }
+            }
+          },
+          "quoted_status_result": {
+            "result": {
+              "tweet": {
+                "legacy": {
+                  "id_str": "6666666666666666666",
+                  "full_text": "The original quoted text",
+                  "created_at": "Thu Jan 04 10:00:00 +0000 2024",
+                  "user_id_str": "100000006",
+                  "extended_entities": { "media": [] },
+                  "entities": { "urls": [] }
+                },
+                "core": {
+                  "user_results": {
+                    "result": {
+                      "legacy": {
+                        "screen_name": "quoteduser",
+                        "name": "Quoted User",
+                        "profile_image_url_https": "https://pbs.twimg.com/profile_images/100000006/avatar.jpg"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

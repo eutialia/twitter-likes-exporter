@@ -1,0 +1,49 @@
+{
+  "entryId": "tweet-4444444444444444444",
+  "content": {
+    "itemContent": {
+      "tweet_results": {
+        "result": {
+          "legacy": {
+            "id_str": "4444444444444444444",
+            "full_text": "Check this video https://t.co/videolink https://t.co/articlelink",
+            "created_at": "Wed Jan 03 08:00:00 +0000 2024",
+            "user_id_str": "100000004",
+            "extended_entities": {
+              "media": [
+                {
+                  "type": "video",
+                  "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/4444444444444444444/pu/img/poster.jpg",
+                  "url": "https://t.co/videolink",
+                  "video_info": {
+                    "variants": [
+                      { "content_type": "application/x-mpegURL", "url": "https://video.twimg.com/ext_tw_video/4444444444444444444/pu/pl/index.m3u8" },
+                      { "content_type": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/ext_tw_video/4444444444444444444/pu/vid/1280x720/clip.mp4" },
+                      { "content_type": "video/mp4", "bitrate": 832000, "url": "https://video.twimg.com/ext_tw_video/4444444444444444444/pu/vid/640x360/clip.mp4" }
+                    ]
+                  }
+                }
+              ]
+            },
+            "entities": {
+              "urls": [
+                { "url": "https://t.co/articlelink", "expanded_url": "https://example.com/article", "display_url": "example.com/article" }
+              ]
+            }
+          },
+          "core": {
+            "user_results": {
+              "result": {
+                "legacy": {
+                  "screen_name": "videouser",
+                  "name": "Video User",
+                  "profile_image_url_https": "https://pbs.twimg.com/profile_images/100000004/avatar.jpg"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

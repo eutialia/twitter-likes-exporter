@@ -1,0 +1,32 @@
+{
+  "entryId": "tweet-2222222222222222222",
+  "content": {
+    "itemContent": {
+      "tweet_results": {
+        "result": {
+          "tweet": {
+            "legacy": {
+              "id_str": "2222222222222222222",
+              "full_text": "Wrapped in TweetWithVisibilityResults",
+              "created_at": "Tue Jan 02 10:00:00 +0000 2024",
+              "user_id_str": "100000002",
+              "extended_entities": { "media": [] },
+              "entities": { "urls": [] }
+            },
+            "core": {
+              "user_results": {
+                "result": {
+                  "legacy": {
+                    "screen_name": "wrappeduser",
+                    "name": "Wrapped User",
+                    "profile_image_url_https": "https://pbs.twimg.com/profile_images/100000002/avatar.jpg"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
