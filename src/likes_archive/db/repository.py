@@ -180,9 +180,11 @@ async def record_scrape_run(
 
 
 async def latest_scrape_run(session: AsyncSession) -> dict[str, Any] | None:
-    row = await session.execute(text("""
+    row = await session.execute(
+        text("""
         SELECT success, error_message FROM scrape_runs ORDER BY run_at DESC LIMIT 1
-    """))
+    """)
+    )
     result = row.fetchone()
     if result is None:
         return None

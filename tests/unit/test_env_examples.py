@@ -70,9 +70,7 @@ def test_no_unknown_keys_in_examples(
     )
 
 
-def test_secrets_and_config_do_not_overlap(
-    secrets_keys: set[str], config_keys: set[str]
-) -> None:
+def test_secrets_and_config_do_not_overlap(secrets_keys: set[str], config_keys: set[str]) -> None:
     """A key should not appear in both files (separation of concerns)."""
     overlap = secrets_keys & config_keys
     assert not overlap, (

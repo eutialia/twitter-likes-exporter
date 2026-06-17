@@ -90,10 +90,7 @@ def dedupe_parent_media(tweet: dict) -> list[dict]:
     if not quoted or not media_items:
         return media_items
 
-    quoted_thumbs = {
-        _basename(m["thumbnail_url"])
-        for m in (quoted.get("tweet_media") or [])
-    }
+    quoted_thumbs = {_basename(m["thumbnail_url"]) for m in (quoted.get("tweet_media") or [])}
     if not quoted_thumbs:
         return media_items
 

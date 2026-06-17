@@ -21,7 +21,10 @@ def test_avatar_url_uses_user_id() -> None:
 
 def test_avatar_url_ignores_cdn_filename() -> None:
     """The avatar key is derived from user_id, not the CDN filename."""
-    tweet = {**_TWEET, "user_avatar_url": "https://pbs.twimg.com/profile_images/123456/different_photo.jpg"}
+    tweet = {
+        **_TWEET,
+        "user_avatar_url": "https://pbs.twimg.com/profile_images/123456/different_photo.jpg",
+    }
     url = avatar_url(tweet, BASE)
     assert url == f"{BASE}/images/avatars/123456.jpg"
 
