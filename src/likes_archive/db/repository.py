@@ -40,8 +40,8 @@ _UPSERT_SQL = text("""
     ON CONFLICT (tweet_id) DO UPDATE SET
         user_handle = EXCLUDED.user_handle,
         user_name   = EXCLUDED.user_name,
-        payload     = EXCLUDED.payload,
-        updated_at  = now()
+        payload     = EXCLUDED.payload
+    -- updated_at is set by the BEFORE UPDATE trigger (migration 0002).
     WHERE tweets.payload IS DISTINCT FROM EXCLUDED.payload
 """)
 
@@ -62,10 +62,10 @@ class TweetRepository:
         await self._session.execute(_UPSERT_SQL, _tweet_to_params(tweet))
 
     async def bulk_upsert(self, tweets: list[dict[str, Any]]) -> None:
-        """Upsert tweets in chunks of up to _BATCH_SIZE rows."""
+        """Upsert tweets, chunked to bound statement size; one round trip per chunk."""
         for i in range(0, len(tweets), _BATCH_SIZE):
-            for tweet in tweets[i : i + _BATCH_SIZE]:
-                await self._session.execute(_UPSERT_SQL, _tweet_to_params(tweet))
+            chunk = [_tweet_to_params(t) for t in tweets[i : i + _BATCH_SIZE]]
+            await self._session.execute(_UPSERT_SQL, chunk)
 
     async def exists(self, tweet_id: str) -> bool:
         """True iff tweet_id is present. SELECT 1 — the incremental-stop check."""
@@ -84,24 +84,44 @@ class TweetRepository:
         return None if result is None else _row_payload(result.payload)
 
     async def list_page(
-        self, cursor: str | None, limit: int, author: str | None = None
+        self,
+        *,
+        limit: int,
+        before_created_at: datetime | None = None,
+        before_tweet_id: str | None = None,
+        author: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Keyset-paginated browse, reverse-chronological by tweet_id (snowflake)."""
+        """Keyset-paginated browse, reverse-chronological by created_at.
+
+        Paging uses a stable composite ``(created_at, tweet_id)`` keyset so it is
+        correct across the 2018 snowflake 18->19 digit boundary, where a TEXT
+        ordering on ``tweet_id`` would mis-sort (see regression test).
+        """
         sql = text("""
             SELECT payload
             FROM tweets
             WHERE (CAST(:author AS text) IS NULL OR user_handle = :author)
-              AND (CAST(:cursor AS text) IS NULL OR tweet_id < :cursor)
-            ORDER BY tweet_id DESC
+              AND (
+                    CAST(:before_created_at AS timestamptz) IS NULL
+                 OR (created_at, tweet_id)
+                        < (CAST(:before_created_at AS timestamptz), CAST(:before_tweet_id AS text))
+              )
+            ORDER BY created_at DESC, tweet_id DESC
             LIMIT :limit
         """)
         rows = await self._session.execute(
-            sql, {"cursor": cursor, "limit": limit, "author": author}
+            sql,
+            {
+                "before_created_at": before_created_at,
+                "before_tweet_id": before_tweet_id,
+                "author": author,
+                "limit": limit,
+            },
         )
         return [_row_payload(r.payload) for r in rows.fetchall()]
 
     async def search(
-        self, query: str, limit: int, author: str | None = None, cursor: str | None = None
+        self, query: str, *, limit: int, author: str | None = None
     ) -> list[dict[str, Any]]:
         """FTS (stemmed) + pg_trgm fuzzy search over the parent tweet's content."""
         sql = text("""
@@ -113,13 +133,10 @@ class TweetRepository:
                     content_tsv @@ plainto_tsquery('english', :q)
                  OR similarity(payload->>'tweet_content', :q) > 0.15
                 )
-              AND (CAST(:cursor AS text) IS NULL OR tweet_id < :cursor)
             ORDER BY rank DESC, tweet_id DESC
             LIMIT :limit
         """)
-        rows = await self._session.execute(
-            sql, {"q": query, "author": author, "cursor": cursor, "limit": limit}
-        )
+        rows = await self._session.execute(sql, {"q": query, "author": author, "limit": limit})
         return [_row_payload(r.payload) for r in rows.fetchall()]
 
     async def list_authors(self) -> list[dict[str, str]]:
@@ -130,7 +147,7 @@ class TweetRepository:
                    user_name                    AS name,
                    payload->>'user_avatar_url'  AS avatar_url
             FROM tweets
-            ORDER BY user_handle ASC, tweet_id DESC
+            ORDER BY user_handle ASC, created_at DESC
         """)
         rows = await self._session.execute(sql)
         return [

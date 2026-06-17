@@ -165,6 +165,48 @@ async def test_upsert_stores_created_at_as_utc(db_session):
     assert created_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_upsert_advances_updated_at_on_changed_payload(session_engine):
+    """The BEFORE UPDATE trigger (migration 0002) must fire on the conflict-update
+    path: re-upserting a changed payload advances updated_at.
+
+    Two separate committed transactions are required — now() is transaction-start
+    time, so both upserts must run in distinct transactions to see distinct stamps.
+    """
+    maker = async_sessionmaker(session_engine, expire_on_commit=False)
+    tweet_id = "T_TRIGGER_001"
+    try:
+        async with maker() as session:
+            await TweetRepository(session).upsert(
+                _make_tweet(tweet_id=tweet_id, tweet_content="first version")
+            )
+            await session.commit()
+            first = (
+                await session.execute(
+                    text("SELECT updated_at FROM tweets WHERE tweet_id = :id"),
+                    {"id": tweet_id},
+                )
+            ).scalar()
+
+        async with maker() as session:
+            await TweetRepository(session).upsert(
+                _make_tweet(tweet_id=tweet_id, tweet_content="second version")
+            )
+            await session.commit()
+            second = (
+                await session.execute(
+                    text("SELECT updated_at FROM tweets WHERE tweet_id = :id"),
+                    {"id": tweet_id},
+                )
+            ).scalar()
+
+        assert second > first
+    finally:
+        async with maker() as session:
+            await session.execute(text("DELETE FROM tweets WHERE tweet_id = :id"), {"id": tweet_id})
+            await session.commit()
+
+
 # --- exists ---------------------------------------------------------------
 
 
@@ -207,33 +249,84 @@ async def test_get_returns_none_for_missing_tweet(db_session):
 async def test_list_page_returns_most_recent_first(db_session):
     repo = TweetRepository(db_session)
     for i, tid in enumerate(["8001", "8002", "8003"]):
-        await repo.upsert(_make_tweet(tweet_id=tid, user_handle=f"pguser_{i}"))
-    page = await repo.list_page(cursor=None, limit=10)
+        # created_at ordering tracks the numeric id order here, so the
+        # reverse-chronological assertion below holds.
+        await repo.upsert(
+            _make_tweet(
+                tweet_id=tid,
+                user_handle=f"pguser_{i}",
+                tweet_created_at=f"Mon Jan 0{i + 1} 12:00:00 +0000 2024",
+            )
+        )
+    page = await repo.list_page(limit=10)
     ids = [t["tweet_id"] for t in page]
     assert ids == sorted(ids, reverse=True)
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_list_page_cursor_excludes_seen_tweets(db_session):
+async def test_list_page_orders_by_created_at_across_snowflake_digit_boundary(db_session):
+    """Regression: snowflake ids grew from 18 to 19 digits on 2018-05-25.
+
+    Lexicographic TEXT ordering puts the older 18-digit id ('9...') AFTER the
+    newer 19-digit id ('1...') because '9' > '1'. Ordering must use created_at.
+    """
     repo = TweetRepository(db_session)
-    for tid in ["9001", "9002", "9003", "9004"]:
-        await repo.upsert(_make_tweet(tweet_id=tid))
-    first = await repo.list_page(cursor=None, limit=2)
-    assert first[0]["tweet_id"] == "9004"
-    assert first[1]["tweet_id"] == "9003"
-    second = await repo.list_page(cursor="9003", limit=2)
-    second_ids = [t["tweet_id"] for t in second]
-    assert "9003" not in second_ids
-    assert "9004" not in second_ids
-    assert "9002" in second_ids
+    older = _make_tweet(
+        tweet_id="900000000000000000",  # 18 digits, pre-2018
+        user_handle="boundary_old",
+        tweet_created_at="Thu Jun 01 12:00:00 +0000 2017",
+    )
+    newer = _make_tweet(
+        tweet_id="1740000000000000000",  # 19 digits, 2023
+        user_handle="boundary_new",
+        tweet_created_at="Wed Nov 01 12:00:00 +0000 2023",
+    )
+    await repo.upsert(older)
+    await repo.upsert(newer)
+    page = await repo.list_page(limit=10)
+    ids = [t["tweet_id"] for t in page]
+    assert ids.index("1740000000000000000") < ids.index("900000000000000000")
+    assert ids[0] == "1740000000000000000"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_page_keyset_pages_by_created_at(db_session):
+    repo = TweetRepository(db_session)
+    older = _make_tweet(
+        tweet_id="900000000000000001",
+        user_handle="keyset_old",
+        tweet_created_at="Thu Jun 01 12:00:00 +0000 2017",
+    )
+    newer = _make_tweet(
+        tweet_id="1740000000000000001",
+        user_handle="keyset_new",
+        tweet_created_at="Wed Nov 01 12:00:00 +0000 2023",
+    )
+    await repo.upsert(older)
+    await repo.upsert(newer)
+
+    first = await repo.list_page(limit=1)
+    assert first[0]["tweet_id"] == "1740000000000000001"
+
+    second = await repo.list_page(
+        limit=1,
+        before_created_at=datetime(2023, 11, 1, 12, 0, 0, tzinfo=UTC),
+        before_tweet_id="1740000000000000001",
+    )
+    assert second[0]["tweet_id"] == "900000000000000001"
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_list_page_respects_limit(db_session):
     repo = TweetRepository(db_session)
     for i in range(5):
-        await repo.upsert(_make_tweet(tweet_id=f"1000{i}"))
-    page = await repo.list_page(cursor=None, limit=3)
+        await repo.upsert(
+            _make_tweet(
+                tweet_id=f"1000{i}",
+                tweet_created_at=f"Mon Jan 0{i + 1} 12:00:00 +0000 2024",
+            )
+        )
+    page = await repo.list_page(limit=3)
     assert len(page) <= 3
 
 
