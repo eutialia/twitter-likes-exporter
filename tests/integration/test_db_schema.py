@@ -4,6 +4,7 @@ Requires a Postgres instance. Supply TEST_DATABASE_URL to use an existing server
 or let testcontainers spin one up automatically. All introspection uses the async
 engine (asyncpg) — no sync driver is required.
 """
+
 from __future__ import annotations
 
 import os
@@ -96,8 +97,15 @@ class TestMigratedSchema:
                 lambda c: {col["name"] for col in inspect(c).get_columns("tweets")}
             )
         required = {
-            "tweet_id", "user_id", "user_handle", "user_name", "created_at",
-            "payload", "content_tsv", "inserted_at", "updated_at",
+            "tweet_id",
+            "user_id",
+            "user_handle",
+            "user_name",
+            "created_at",
+            "payload",
+            "content_tsv",
+            "inserted_at",
+            "updated_at",
         }
         assert required <= cols, f"Missing columns: {required - cols}"
 
@@ -120,8 +128,11 @@ class TestMigratedSchema:
                 lambda c: {idx["name"] for idx in inspect(c).get_indexes("tweets")}
             )
         expected = {
-            "tweets_content_tsv_idx", "tweets_payload_gin_idx",
-            "tweets_user_id_idx", "tweets_user_handle_idx", "tweets_created_at_idx",
+            "tweets_content_tsv_idx",
+            "tweets_payload_gin_idx",
+            "tweets_user_id_idx",
+            "tweets_user_handle_idx",
+            "tweets_created_at_idx",
         }
         assert expected <= names, f"Missing indexes: {expected - names}"
 
@@ -172,7 +183,8 @@ class TestMigratedSchema:
             await conn.execute(
                 text(
                     """
-                    INSERT INTO tweets (tweet_id, user_id, user_handle, user_name, created_at, payload)
+                    INSERT INTO tweets
+                        (tweet_id, user_id, user_handle, user_name, created_at, payload)
                     VALUES ('test_tsv_001', 'u1', 'handle1', 'Name 1', now(),
                             '{"tweet_content": "hello world python"}'::jsonb)
                     ON CONFLICT DO NOTHING
@@ -190,8 +202,6 @@ class TestMigratedSchema:
 
     async def test_alembic_version_at_head(self, engine) -> None:
         async with engine.connect() as conn:
-            row = (
-                await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).fetchone()
+            row = (await conn.execute(text("SELECT version_num FROM alembic_version"))).fetchone()
         assert row is not None
         assert row[0] == "0003"

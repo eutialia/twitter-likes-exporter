@@ -4,6 +4,7 @@ Revision ID: 0001
 Revises:
 Create Date: 2024-01-01 00:00:00
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -50,21 +51,16 @@ def upgrade() -> None:
         ),
     )
 
-    op.create_index(
-        "tweets_content_tsv_idx", "tweets", ["content_tsv"], postgresql_using="gin"
-    )
+    op.create_index("tweets_content_tsv_idx", "tweets", ["content_tsv"], postgresql_using="gin")
     op.execute(
         "CREATE INDEX tweets_content_trgm_idx ON tweets "
         "USING GIN ((payload->>'tweet_content') gin_trgm_ops)"
     )
-    op.create_index(
-        "tweets_payload_gin_idx", "tweets", ["payload"], postgresql_using="gin"
-    )
+    op.create_index("tweets_payload_gin_idx", "tweets", ["payload"], postgresql_using="gin")
     op.create_index("tweets_user_id_idx", "tweets", ["user_id"])
     op.create_index("tweets_user_handle_idx", "tweets", ["user_handle"])
     op.execute(
-        "CREATE INDEX tweets_user_handle_trgm ON tweets "
-        "USING GIN (user_handle gin_trgm_ops)"
+        "CREATE INDEX tweets_user_handle_trgm ON tweets USING GIN (user_handle gin_trgm_ops)"
     )
     op.create_index("tweets_created_at_idx", "tweets", [sa.text("created_at DESC")])
 

@@ -46,4 +46,6 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    # pydantic-settings populates every field from environment variables at runtime,
+    # so the no-argument construction is correct even though the type checker can't see it.
+    return Settings()  # ty: ignore[missing-argument]

@@ -1,5 +1,6 @@
 # tests/unit/test_parser.py
 """Characterization tests for likes_archive.parser (verbatim-ported TweetParser)."""
+
 from __future__ import annotations
 
 import json
@@ -57,8 +58,16 @@ class TestFromRawEntry:
 
 class TestTweetAsJsonShape:
     REQUIRED_KEYS = {
-        "tweet_id", "user_id", "user_handle", "user_name", "user_avatar_url",
-        "tweet_content", "tweet_media", "tweet_urls", "tweet_created_at", "quoted_tweet",
+        "tweet_id",
+        "user_id",
+        "user_handle",
+        "user_name",
+        "user_avatar_url",
+        "tweet_content",
+        "tweet_media",
+        "tweet_urls",
+        "tweet_created_at",
+        "quoted_tweet",
     }
 
     @pytest.mark.parametrize(
@@ -90,7 +99,10 @@ class TestNormalPhotos:
         assert self.result["user_name"] == "Test User"
 
     def test_user_avatar_url(self) -> None:
-        assert self.result["user_avatar_url"] == "https://pbs.twimg.com/profile_images/100000001/avatar.jpg"
+        assert (
+            self.result["user_avatar_url"]
+            == "https://pbs.twimg.com/profile_images/100000001/avatar.jpg"
+        )
 
     def test_tweet_content(self) -> None:
         assert "Look at these two photos" in self.result["tweet_content"]
@@ -201,7 +213,9 @@ class TestMigrateLegacyTweetSchema:
         assert "tweet_media_urls" not in result
         assert len(result["tweet_media"]) == 1
         assert result["tweet_media"][0]["type"] == MEDIA_TYPE_PHOTO
-        assert result["tweet_media"][0]["thumbnail_url"] == "https://pbs.twimg.com/media/TEST123.jpg"
+        assert (
+            result["tweet_media"][0]["thumbnail_url"] == "https://pbs.twimg.com/media/TEST123.jpg"
+        )
         assert result["tweet_media"][0]["video_url"] is None
 
     def test_pairs_gif_thumb_with_mp4_by_media_key(self) -> None:

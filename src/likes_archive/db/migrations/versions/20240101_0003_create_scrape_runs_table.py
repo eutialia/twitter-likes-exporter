@@ -4,6 +4,7 @@ Revision ID: 0003
 Revises: 0002
 Create Date: 2024-01-01 00:00:02
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -30,9 +31,7 @@ def upgrade() -> None:
         sa.Column("pages_fetched", sa.Integer, nullable=False, server_default=sa.text("0")),
         sa.Column("error_message", sa.Text, nullable=True),
     )
-    op.create_index(
-        "scrape_runs_run_at_idx", "scrape_runs", [sa.text("run_at DESC")]
-    )
+    op.create_index("scrape_runs_run_at_idx", "scrape_runs", [sa.text("run_at DESC")])
 
 
 def downgrade() -> None:
