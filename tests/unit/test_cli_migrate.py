@@ -51,6 +51,7 @@ def _mock_engine() -> MagicMock:
 def _ok_reconcile_report() -> ReconcileReport:
     return ReconcileReport(
         db_count=3,
+        matched_count=3,
         distinct_referenced_thumbnails=0,
         media_on_disk={"avatars": 0, "tweets": 0, "videos": 0},
         diverged=False,
@@ -328,6 +329,7 @@ def test_migrate_reconcile_diverged_exits_nonzero(tmp_path):
     rsync_mock = MagicMock()
     diverged_report = ReconcileReport(
         db_count=2,
+        matched_count=2,
         distinct_referenced_thumbnails=1,
         media_on_disk={"avatars": 0, "tweets": 0, "videos": 0},
         diverged=True,
@@ -374,6 +376,7 @@ def test_migrate_reconcile_ok_exits_zero(tmp_path):
     rsync_mock = MagicMock()
     ok_report = ReconcileReport(
         db_count=3,
+        matched_count=3,
         distinct_referenced_thumbnails=2,
         media_on_disk={"avatars": 5, "tweets": 10, "videos": 2},
         diverged=False,
@@ -436,3 +439,43 @@ def test_migrate_engine_disposed_on_error(tmp_path):
 
     assert res.exit_code != 0
     engine.dispose.assert_awaited_once()
+
+
+def test_migrate_summary_shows_skipped_warning_when_tweets_skipped(tmp_path):
+    """When MigrationResult.skipped is non-empty, the summary must show a WARNING line."""
+    settings = _settings(media_root=str(tmp_path / "media"))
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text("[]")
+    media_src = tmp_path / "tweet_likes_html"
+    media_src.mkdir()
+
+    result = MigrationResult(total=3, schema_upgraded=0, upserted=2, skipped=["BAD1"])
+    migrate_mock = AsyncMock(return_value=result)
+    rsync_mock = MagicMock()
+    reconcile_mock = AsyncMock(return_value=_ok_reconcile_report())
+    session = _mock_session()
+    engine = _mock_engine()
+
+    patches = [
+        patch("likes_archive.cli.get_settings", return_value=settings),
+        patch("likes_archive.cli.make_engine", return_value=engine),
+        patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
+        patch("likes_archive.cli.migrate_archive", migrate_mock),
+        patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        res = runner.invoke(
+            app,
+            ["migrate", "--json", str(json_path), "--media-src", str(media_src), "--skip-rsync"],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert res.exit_code == 0, res.output
+    assert "WARNING" in res.output
+    assert "BAD1" in res.output
+    assert "skipped" in res.output.lower()

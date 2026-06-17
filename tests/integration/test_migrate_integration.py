@@ -336,3 +336,49 @@ async def test_reconcile_integration_on_disk_counts(migrate_engine, tmp_path: Pa
         )
 
     assert report.media_on_disk == {"avatars": 2, "tweets": 1, "videos": 0}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reconcile_integration_subset_check_not_diverged_with_extra_rows(
+    migrate_engine, tmp_path: Path
+) -> None:
+    """After migrating 3 tweets and inserting 1 extra unrelated row directly,
+    reconcile({the 3}) must report diverged=False, db_count=4, matched_count=3.
+
+    This proves the subset check: a populated DB from a prior scrape run does NOT
+    cause a false DIVERGED result.
+    """
+    from sqlalchemy import text as sql_text
+
+    session_factory = async_sessionmaker(migrate_engine, expire_on_commit=False)
+    json_path = _write_fixture(tmp_path)
+
+    async with session_factory() as session:
+        result = await migrate_archive(json_path=json_path, session=session)
+        await session.commit()
+
+    # Insert an extra tweet row directly — simulating a row added by the scraper.
+    extra_id = "EXTRA_9999"
+    async with session_factory() as session:
+        await session.execute(
+            sql_text(
+                "INSERT INTO tweets"
+                " (tweet_id, user_id, user_handle, user_name, created_at, payload)"
+                " VALUES (:tid, 'extra', 'extra', 'Extra', NOW(), CAST(:payload AS jsonb))"
+                " ON CONFLICT (tweet_id) DO NOTHING"
+            ),
+            {"tid": extra_id, "payload": '{"tweet_id": "EXTRA_9999"}'},
+        )
+        await session.commit()
+
+    async with session_factory() as rec_session:
+        report = await reconcile(
+            session=rec_session,
+            media_root=tmp_path / "empty_media_subset",
+            expected_tweet_ids=set(result.tweet_ids),  # only the original 3
+        )
+
+    assert report.db_count == 4, f"Expected 4 total rows but got {report.db_count}"
+    assert report.matched_count == 3, f"Expected matched_count=3 but got {report.matched_count}"
+    assert report.diverged is False, "Must not diverge when all 3 expected ids are present"

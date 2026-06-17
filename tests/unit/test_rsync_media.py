@@ -118,3 +118,43 @@ def test_rsync_media_idempotent(tmp_path):
     rsync_media(src, dst)
     rsync_media(src, dst)  # second run — --ignore-existing makes this a no-op
     assert (dst / "images" / "avatars" / "123.jpg").read_bytes() == b"fake-media"
+
+
+def test_rsync_media_skips_missing_subdir_gracefully(tmp_path):
+    """If media_src/videos/ is absent, rsync images/ and silently skip videos/.
+
+    Write → FAIL (currently raises CalledProcessError on rsync exit 23) → fix → PASS.
+    """
+    from likes_archive.migrate import rsync_media
+
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    # Only create images/, NO videos/ subdirectory
+    (src / "images" / "avatars").mkdir(parents=True)
+    (src / "images" / "tweets").mkdir(parents=True)
+    (src / "images" / "avatars" / "123.jpg").write_bytes(b"fake-media")
+    dst.mkdir()
+
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with patch("likes_archive.migrate.subprocess.run", return_value=completed) as mock_run:
+        rsync_media(src, dst)  # must NOT raise
+
+    # Only images/ should have been rsynced; videos/ was absent → skipped
+    assert mock_run.call_count == 1
+    images_call = mock_run.call_args_list[0]
+    assert str(src / "images") + "/" in images_call.args[0]
+
+
+@pytest.mark.skipif(not _rsync_available(), reason="rsync not on PATH")
+def test_rsync_media_skips_missing_subdir_real_rsync(tmp_path):
+    """End-to-end: only images/ present → images/ copied, videos/ silently skipped (no error)."""
+    from likes_archive.migrate import rsync_media
+
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    (src / "images" / "avatars").mkdir(parents=True)
+    (src / "images" / "avatars" / "123.jpg").write_bytes(b"fake-media")
+
+    rsync_media(src, dst)  # must not raise
+
+    assert (dst / "images" / "avatars" / "123.jpg").exists()

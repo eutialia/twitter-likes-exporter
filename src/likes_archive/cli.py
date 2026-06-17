@@ -227,6 +227,12 @@ async def _run_migrate(
         typer.echo(f"JSON source tweets:        {result.total}")
         typer.echo(f"  - schema upgraded:       {result.schema_upgraded}")
         typer.echo(f"DB tweets upserted:        {result.upserted}")
+        if result.skipped:
+            typer.echo(
+                f"WARNING: {len(result.skipped)} tweet(s) skipped due to parse errors: "
+                + ", ".join(result.skipped[:10])
+                + ("..." if len(result.skipped) > 10 else "")
+            )
 
         if not skip_rsync:
             media_root = Path(settings.media_root)
@@ -245,14 +251,16 @@ async def _run_migrate(
             )
 
         typer.echo("=== Reconciliation Report ===")
-        typer.echo(f"DB tweet count:            {report.db_count}")
-        typer.echo(f"Expected (from JSON):      {len(result.tweet_ids)}")
+        typer.echo(f"DB tweet count (total):    {report.db_count}")
+        typer.echo(f"Expected present:          {report.matched_count}/{len(result.tweet_ids)}")
         typer.echo(f"Distinct referenced thumbs:{report.distinct_referenced_thumbnails}")
         typer.echo(f"On-disk avatars:           {report.media_on_disk['avatars']}")
         typer.echo(f"On-disk tweet images:      {report.media_on_disk['tweets']}")
         typer.echo(f"On-disk videos:            {report.media_on_disk['videos']}")
         if report.diverged:
-            typer.echo("Status: DIVERGED — DB count does not match JSON source. Re-run migrate.")
+            typer.echo(
+                "Status: DIVERGED — not all expected tweet IDs are present in DB. Re-run migrate."
+            )
             return 1
         typer.echo("Status: OK")
         return 0

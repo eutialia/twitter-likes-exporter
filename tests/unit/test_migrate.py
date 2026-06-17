@@ -353,68 +353,84 @@ async def test_migrate_archive_dry_run_false_still_upserts(tmp_path: Path) -> No
 # ------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reconcile_diverged_when_db_count_differs() -> None:
-    """reconcile must return diverged=True when DB count != len(expected_tweet_ids)."""
-    from unittest.mock import AsyncMock, MagicMock
+def _mock_reconcile_session(db_count: int, matched_count: int, thumbnail_count: int) -> MagicMock:
+    """Return a mocked AsyncSession for reconcile with 3 execute() responses:
+    1st → db_count (total rows), 2nd → matched_count (subset), 3rd → thumbnail count.
+    """
+    session = MagicMock()
+    r_db = MagicMock()
+    r_db.scalar_one.return_value = db_count
+    r_matched = MagicMock()
+    r_matched.scalar_one.return_value = matched_count
+    r_thumb = MagicMock()
+    r_thumb.scalar_one.return_value = thumbnail_count
+    session.execute = AsyncMock(side_effect=[r_db, r_matched, r_thumb])
+    return session
 
+
+@pytest.mark.asyncio
+async def test_reconcile_diverged_when_expected_id_missing() -> None:
+    """reconcile must return diverged=True when an expected tweet_id is absent from DB."""
     from likes_archive.migrate import reconcile
 
-    session = MagicMock()
-    # First execute → db_count = 2; second execute → distinct thumbnails = 1
-    r1 = MagicMock()
-    r1.scalar_one.return_value = 2
-    r2 = MagicMock()
-    r2.scalar_one.return_value = 1
-    session.execute = AsyncMock(side_effect=[r1, r2])
+    # DB has 2 rows total; only 2 of the 3 expected ids are present → diverged
+    session = _mock_reconcile_session(db_count=2, matched_count=2, thumbnail_count=1)
 
     report = await reconcile(
         session=session,
         media_root=Path("/nonexistent"),
-        expected_tweet_ids={"a", "b", "c"},  # 3 ids but DB has 2
+        expected_tweet_ids={"a", "b", "c"},  # 3 expected, only 2 matched
     )
 
     assert report.db_count == 2
+    assert report.matched_count == 2
     assert report.diverged is True
 
 
 @pytest.mark.asyncio
-async def test_reconcile_not_diverged_when_counts_match() -> None:
-    """reconcile must return diverged=False when DB count == len(expected_tweet_ids)."""
-    from unittest.mock import AsyncMock, MagicMock
-
+async def test_reconcile_not_diverged_when_all_expected_ids_present() -> None:
+    """reconcile must return diverged=False when all expected ids are present, even if
+    db_count exceeds len(expected_tweet_ids) (extra rows from scraper/prior runs)."""
     from likes_archive.migrate import reconcile
 
-    session = MagicMock()
-    r1 = MagicMock()
-    r1.scalar_one.return_value = 3
-    r2 = MagicMock()
-    r2.scalar_one.return_value = 2
-    session.execute = AsyncMock(side_effect=[r1, r2])
+    # DB has 5 rows total (2 extra from scraper), but all 3 expected ids are matched → OK
+    session = _mock_reconcile_session(db_count=5, matched_count=3, thumbnail_count=2)
 
     report = await reconcile(
         session=session,
         media_root=Path("/nonexistent"),
-        expected_tweet_ids={"a", "b", "c"},  # 3 ids, DB has 3
+        expected_tweet_ids={"a", "b", "c"},  # 3 expected, all 3 matched
+    )
+
+    assert report.db_count == 5
+    assert report.matched_count == 3
+    assert report.diverged is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_not_diverged_when_counts_equal() -> None:
+    """reconcile must return diverged=False when DB count == matched == len(expected)."""
+    from likes_archive.migrate import reconcile
+
+    session = _mock_reconcile_session(db_count=3, matched_count=3, thumbnail_count=2)
+
+    report = await reconcile(
+        session=session,
+        media_root=Path("/nonexistent"),
+        expected_tweet_ids={"a", "b", "c"},
     )
 
     assert report.db_count == 3
+    assert report.matched_count == 3
     assert report.diverged is False
 
 
 @pytest.mark.asyncio
 async def test_reconcile_on_disk_counts_missing_dirs() -> None:
     """reconcile must return 0 for any media subdir that doesn't exist."""
-    from unittest.mock import AsyncMock, MagicMock
-
     from likes_archive.migrate import reconcile
 
-    session = MagicMock()
-    r1 = MagicMock()
-    r1.scalar_one.return_value = 0
-    r2 = MagicMock()
-    r2.scalar_one.return_value = 0
-    session.execute = AsyncMock(side_effect=[r1, r2])
+    session = _mock_reconcile_session(db_count=0, matched_count=0, thumbnail_count=0)
 
     report = await reconcile(
         session=session,
@@ -428,8 +444,6 @@ async def test_reconcile_on_disk_counts_missing_dirs() -> None:
 @pytest.mark.asyncio
 async def test_reconcile_on_disk_counts_real_files(tmp_path: Path) -> None:
     """reconcile must count regular files in the correct subdirs."""
-    from unittest.mock import AsyncMock, MagicMock
-
     from likes_archive.migrate import reconcile
 
     # Set up fake media dir structure
@@ -441,12 +455,7 @@ async def test_reconcile_on_disk_counts_real_files(tmp_path: Path) -> None:
     (tmp_path / "images" / "tweets" / "c.jpg").write_bytes(b"")
     (tmp_path / "videos" / "tweets" / "d.mp4").write_bytes(b"")
 
-    session = MagicMock()
-    r1 = MagicMock()
-    r1.scalar_one.return_value = 0
-    r2 = MagicMock()
-    r2.scalar_one.return_value = 0
-    session.execute = AsyncMock(side_effect=[r1, r2])
+    session = _mock_reconcile_session(db_count=0, matched_count=0, thumbnail_count=0)
 
     report = await reconcile(
         session=session,
@@ -455,3 +464,81 @@ async def test_reconcile_on_disk_counts_real_files(tmp_path: Path) -> None:
     )
 
     assert report.media_on_disk == {"avatars": 2, "tweets": 1, "videos": 1}
+
+
+# ------------------------------------------------------------------
+# FIX 2: migrate_archive — per-tweet failure isolation
+# ------------------------------------------------------------------
+
+_BAD_DATE_TWEET: dict = {
+    "tweet_id": "BAD1",
+    "user_id": "9001",
+    "user_handle": "baduser",
+    "user_name": "Bad User",
+    "user_avatar_url": "https://pbs.twimg.com/profile_images/9001/photo.jpg",
+    "tweet_content": "This tweet has a bad date",
+    "tweet_media": [],
+    "tweet_urls": [],
+    "tweet_created_at": "not a date",  # ← invalid, will fail strptime
+    "quoted_tweet": None,
+}
+
+
+@pytest.mark.asyncio
+async def test_migrate_archive_skips_malformed_tweet_and_upserts_valid(tmp_path: Path) -> None:
+    """A tweet with an unparseable tweet_created_at must be skipped; others must be upserted.
+
+    Write → FAIL (currently raises) → fix → PASS.
+    """
+    import json as _json
+
+    from likes_archive.migrate import migrate_archive
+
+    # 3 tweets: valid, bad date, valid
+    tweets = [
+        copy.deepcopy(_PLAIN_TWEET),  # tweet_id="300", valid
+        copy.deepcopy(_BAD_DATE_TWEET),  # tweet_id="BAD1", bad date
+        copy.deepcopy(_QUOTED_TWEET),  # tweet_id="200", valid
+    ]
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text(_json.dumps(tweets), encoding="utf-8")
+
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+
+    upserted_batches: list[list[dict]] = []
+
+    async def _capture(batch: list) -> None:
+        upserted_batches.append(list(batch))
+
+    with patch("likes_archive.migrate.TweetRepository") as MockRepo:
+        instance = MockRepo.return_value
+        instance.bulk_upsert = AsyncMock(side_effect=_capture)
+        result = await migrate_archive(json_path=json_path, session=fake_session)
+
+    all_upserted = [t for batch in upserted_batches for t in batch]
+    upserted_ids = {t["tweet_id"] for t in all_upserted}
+
+    assert result.total == 3
+    assert result.upserted == 2
+    assert result.skipped == ["BAD1"]
+    assert "300" in upserted_ids
+    assert "200" in upserted_ids
+    assert "BAD1" not in upserted_ids
+
+
+@pytest.mark.asyncio
+async def test_migrate_archive_skipped_field_exists_on_success(tmp_path: Path) -> None:
+    """When all tweets are valid, skipped must be an empty list (not missing)."""
+    from likes_archive.migrate import migrate_archive
+
+    json_path = _write_fixture_json(tmp_path)
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+
+    with patch("likes_archive.migrate.TweetRepository") as MockRepo:
+        instance = MockRepo.return_value
+        instance.bulk_upsert = AsyncMock()
+        result = await migrate_archive(json_path=json_path, session=fake_session)
+
+    assert result.skipped == []

@@ -9,12 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from likes_archive.config import Settings
@@ -27,6 +28,7 @@ from likes_archive.rendering import render_content
 logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 500
+_TWEET_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
 
 @dataclass
@@ -35,11 +37,13 @@ class MigrationResult:
     schema_upgraded: int
     upserted: int
     tweet_ids: frozenset[str] = frozenset()
+    skipped: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ReconcileReport:
     db_count: int
+    matched_count: int
     distinct_referenced_thumbnails: int
     media_on_disk: dict[str, int]
     diverged: bool
@@ -85,47 +89,69 @@ async def migrate_archive(
             )
         pipeline = EnrichmentPipeline(syndication=syndication, http=http_client, settings=settings)
 
-    for tweet in raw:
-        qt = tweet.get("quoted_tweet")
-        quoted_permalink_url: str | None = None
-        if isinstance(qt, dict):
-            quoted_permalink_url = qt.get("permalink_url")
-
-        tweet["rendered_content"] = render_content(
-            tweet.get("tweet_content") or "",
-            tweet_urls=tweet.get("tweet_urls") or [],
-            media=tweet.get("tweet_media") or [],
-            quoted_permalink_url=quoted_permalink_url,
-        )
-
-        if pipeline is not None:
-            # enrich() re-renders rendered_content after t.co expansion — correct order.
-            tweet = await pipeline.enrich(tweet)  # noqa: PLW2901
-
     total = len(raw)
-    tweet_ids: frozenset[str] = frozenset(t["tweet_id"] for t in raw if "tweet_id" in t)
+    skipped: list[str] = []
+    valid_tweets: list[dict[str, Any]] = []
+
+    for idx, tweet in enumerate(raw):
+        tweet_id: str = tweet.get("tweet_id") or f"<index {idx}>"
+        try:
+            # Validate date parse — same format used throughout the codebase.
+            datetime.strptime(tweet["tweet_created_at"], _TWEET_DATE_FORMAT)
+
+            qt = tweet.get("quoted_tweet")
+            quoted_permalink_url: str | None = None
+            if isinstance(qt, dict):
+                quoted_permalink_url = qt.get("permalink_url")
+
+            tweet["rendered_content"] = render_content(
+                tweet.get("tweet_content") or "",
+                tweet_urls=tweet.get("tweet_urls") or [],
+                media=tweet.get("tweet_media") or [],
+                quoted_permalink_url=quoted_permalink_url,
+            )
+
+            if pipeline is not None:
+                # enrich() re-renders rendered_content after t.co expansion — correct order.
+                tweet = await pipeline.enrich(tweet)  # noqa: PLW2901
+
+            valid_tweets.append(tweet)
+        except Exception as exc:
+            logger.warning("Skipping tweet %s — %s: %s", tweet_id, type(exc).__name__, exc)
+            skipped.append(tweet_id)
+
+    tweet_ids: frozenset[str] = frozenset(t["tweet_id"] for t in valid_tweets if "tweet_id" in t)
 
     if dry_run:
         logger.info("DRY RUN — skipping bulk_upsert (%d tweets processed in memory).", total)
         return MigrationResult(
-            total=total, schema_upgraded=schema_upgraded, upserted=0, tweet_ids=tweet_ids
+            total=total,
+            schema_upgraded=schema_upgraded,
+            upserted=0,
+            tweet_ids=tweet_ids,
+            skipped=skipped,
         )
 
     repo = TweetRepository(session)
     upserted = 0
-    for i in range(0, total, _BATCH_SIZE):
-        batch = raw[i : i + _BATCH_SIZE]
+    valid_total = len(valid_tweets)
+    for i in range(0, valid_total, _BATCH_SIZE):
+        batch = valid_tweets[i : i + _BATCH_SIZE]
         await repo.bulk_upsert(batch)
         upserted += len(batch)
         logger.info(
             "Upserted batch %d/%d (%d tweets).",
             i // _BATCH_SIZE + 1,
-            -(-total // _BATCH_SIZE),
+            -(-valid_total // _BATCH_SIZE),
             len(batch),
         )
 
     return MigrationResult(
-        total=total, schema_upgraded=schema_upgraded, upserted=upserted, tweet_ids=tweet_ids
+        total=total,
+        schema_upgraded=schema_upgraded,
+        upserted=upserted,
+        tweet_ids=tweet_ids,
+        skipped=skipped,
     )
 
 
@@ -156,6 +182,18 @@ async def reconcile(
     db_count_row = await session.execute(text("SELECT COUNT(*) FROM tweets"))
     db_count: int = db_count_row.scalar_one()
 
+    # Subset check: how many of the expected ids are actually in the DB.
+    expected_ids_list = list(expected_tweet_ids)
+    if expected_ids_list:
+        matched_row = await session.execute(
+            text("SELECT COUNT(*) FROM tweets WHERE tweet_id = ANY(:ids)").bindparams(
+                bindparam("ids", value=expected_ids_list, expanding=False)
+            )
+        )
+    else:
+        matched_row = await session.execute(text("SELECT 0"))
+    matched_count: int = matched_row.scalar_one()
+
     thumb_row = await session.execute(
         text(
             "SELECT COUNT(DISTINCT media->>'thumbnail_url') "
@@ -171,10 +209,11 @@ async def reconcile(
         "videos": _count_files(media_root / "videos" / "tweets"),
     }
 
-    diverged = db_count != len(expected_tweet_ids)
+    diverged = matched_count != len(expected_tweet_ids)
 
     return ReconcileReport(
         db_count=db_count,
+        matched_count=matched_count,
         distinct_referenced_thumbnails=distinct_thumbnails,
         media_on_disk=media_on_disk,
         diverged=diverged,
@@ -194,13 +233,17 @@ def rsync_media(media_src: Path, media_root: Path) -> None:
     """
     media_root.mkdir(parents=True, exist_ok=True)
     for sub in ("images", "videos"):
+        src_subdir = media_src / sub
+        if not src_subdir.is_dir():
+            logger.warning("Media source subdir %s missing — skipping.", src_subdir)
+            continue
         subprocess.run(
             [
                 "rsync",
                 "-av",
                 "--checksum",
                 "--ignore-existing",
-                f"{media_src / sub}/",
+                f"{src_subdir}/",
                 f"{media_root / sub}/",
             ],
             check=True,
