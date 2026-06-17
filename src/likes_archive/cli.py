@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -29,12 +31,24 @@ from likes_archive.migrate import (
 )
 
 app = typer.Typer(help="Likes Archive — manage your X/Twitter likes archive.")
+db_app = typer.Typer(help="Database management commands.")
+app.add_typer(db_app, name="db")
 logger = logging.getLogger(__name__)
 
 
 @app.callback()
 def _main() -> None:
     """Root callback so Typer keeps subcommand routing (serve/scrape/migrate later)."""
+
+
+@db_app.command("upgrade")
+def db_upgrade() -> None:
+    """Apply all pending Alembic migrations to head."""
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+    )
+    typer.echo("Database migrations applied successfully.")
 
 
 @app.command()
