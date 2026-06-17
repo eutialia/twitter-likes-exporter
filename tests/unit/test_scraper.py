@@ -236,6 +236,34 @@ async def test_run_raises_token_expired_on_403():
 
 
 @respx.mock
+async def test_run_isolates_a_failing_tweet():
+    """A per-tweet upsert failure must not abort the whole run."""
+    page = _likes_response([_raw_entry("1001"), _raw_entry("1002"), _cursor_entry("END")])
+    respx.get(url__regex=r".*QK8AVO3RpcnbLPKXLAiVog/Likes.*").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    repo = _make_fake_repo()
+
+    def _upsert_side_effect(tweet: dict):
+        if tweet["tweet_id"] == "1001":
+            raise ValueError("bad created_at for tweet 1001")
+
+    repo.upsert = AsyncMock(side_effect=_upsert_side_effect)
+
+    async with httpx.AsyncClient() as client:
+        result = await _make_scraper(client=client, repo=repo, settings=_settings()).run()
+
+    # run() must not raise; only the successful tweet counts
+    assert result.new_tweets == 1
+    # upsert was attempted for both
+    assert repo.upsert.call_count == 2
+    # second tweet (1002) was upserted without error
+    successful_ids = [c.args[0]["tweet_id"] for c in repo.upsert.call_args_list]
+    assert "1001" in successful_ids
+    assert "1002" in successful_ids
+
+
+@respx.mock
 async def test_run_calls_sleep_between_pages():
     """Requires non-zero scrape_delay_max (delay_max==0 short-circuits to no-op)."""
     call_count = 0

@@ -82,13 +82,16 @@ class LikesScraper:
                     break
                 try:
                     tweet = parser.tweet_as_json()
+                    await self._enricher.enrich(tweet)
+                    await self._media.download_for_tweet(tweet)
+                    await self._repo.upsert(tweet)
+                    result.new_tweets += 1
                 except KeyError:
                     logger.warning("KeyError parsing tweet %s — skipping.", tweet_id)
-                    continue
-                await self._enricher.enrich(tweet)
-                await self._media.download_for_tweet(tweet)
-                await self._repo.upsert(tweet)
-                result.new_tweets += 1
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to process tweet %s — skipping. Error: %s", tweet_id, exc
+                    )
 
             if result.reached_known:
                 break

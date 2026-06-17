@@ -83,6 +83,10 @@ class EnrichmentPipeline:
         return tweet
 
     async def _enrich_quoted_tweet(self, tweet: dict) -> None:
+        # The parser always emits the ``quoted_tweet`` key for freshly scraped tweets,
+        # so the syndication fetch below only fires for LEGACY rows (M4 migration) where
+        # the key is absent.  A quote that was a tombstone at scrape time stays ``None``
+        # and is not recovered here.
         if "quoted_tweet" in tweet:
             qt = tweet["quoted_tweet"]
             if qt is None:

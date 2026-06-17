@@ -149,6 +149,30 @@ def test_scrape_token_expired_fires_webhook_when_configured(tmp_path):
     notify_mock.assert_awaited_once()
 
 
+def test_scrape_generic_exception_records_failure_and_exits_nonzero(tmp_path):
+    settings = _settings(media_root=tmp_path)
+    scraper = MagicMock()
+    scraper.run = AsyncMock(side_effect=RuntimeError("boom"))
+    record_mock = AsyncMock()
+    patches, client_patch = _common_patches(
+        settings=settings, scraper=scraper, record_mock=record_mock
+    )
+    for p in patches:
+        p.start()
+    _install_client(client_patch)
+    try:
+        res = runner.invoke(app, ["scrape"])
+    finally:
+        for p in patches:
+            p.stop()
+        client_patch.stop()
+    assert res.exit_code == 1
+    record_mock.assert_awaited_once()
+    kw = record_mock.call_args.kwargs
+    assert kw["success"] is False
+    assert "boom" in kw["error_message"]
+
+
 def test_scrape_no_webhook_when_url_not_configured(tmp_path):
     settings = _settings(media_root=tmp_path, webhook_url=None)
     scraper = MagicMock()

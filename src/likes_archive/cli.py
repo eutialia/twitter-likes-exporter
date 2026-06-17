@@ -90,6 +90,18 @@ async def _run_scrape() -> int:
                 if settings.webhook_url:
                     await _notify_token_expired(client, settings.webhook_url)
                 return 1
+            except Exception as exc:
+                logger.exception("Scrape failed with unexpected error: %s", exc)
+                await record_scrape_run(
+                    session=session,
+                    success=False,
+                    new_tweets=result.new_tweets if result else 0,
+                    pages_fetched=result.pages_fetched if result else 0,
+                    error_message=str(exc),
+                )
+                await session.commit()
+                typer.echo(f"ERROR: Scrape failed — {exc}", err=True)
+                return 1
     finally:
         await engine.dispose()
 
