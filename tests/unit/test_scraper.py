@@ -79,7 +79,11 @@ def _cursor_entry(value: str) -> dict:
 
 def _likes_response(entries: list[dict]) -> dict:
     return {
-        "data": {"user": {"result": {"timeline_v2": {"timeline": {"instructions": [{"entries": entries}]}}}}}
+        "data": {
+            "user": {
+                "result": {"timeline_v2": {"timeline": {"instructions": [{"entries": entries}]}}}
+            }
+        }
     }
 
 
@@ -240,7 +244,8 @@ async def test_run_calls_sleep_between_pages():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return httpx.Response(200, json=_likes_response([_raw_entry("5000"), _cursor_entry("CURSOR_P2")]))
+            entries = [_raw_entry("5000"), _cursor_entry("CURSOR_P2")]
+            return httpx.Response(200, json=_likes_response(entries))
         return httpx.Response(200, json=_likes_response([_raw_entry("4999"), _cursor_entry("END")]))
 
     respx.get(url__regex=r".*QK8AVO3RpcnbLPKXLAiVog/Likes.*").mock(side_effect=_two_pages)

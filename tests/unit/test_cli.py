@@ -79,9 +79,13 @@ def _install_client(client_patch):
 def test_scrape_success_records_run(tmp_path):
     settings = _settings(media_root=tmp_path)
     scraper = MagicMock()
-    scraper.run = AsyncMock(return_value=ScraperResult(new_tweets=7, pages_fetched=2, reached_known=True))
+    scraper.run = AsyncMock(
+        return_value=ScraperResult(new_tweets=7, pages_fetched=2, reached_known=True)
+    )
     record_mock = AsyncMock()
-    patches, client_patch = _common_patches(settings=settings, scraper=scraper, record_mock=record_mock)
+    patches, client_patch = _common_patches(
+        settings=settings, scraper=scraper, record_mock=record_mock
+    )
     for p in patches:
         p.start()
     _install_client(client_patch)
@@ -105,7 +109,9 @@ def test_scrape_token_expired_records_failure_and_exits_nonzero(tmp_path):
     scraper = MagicMock()
     scraper.run = AsyncMock(side_effect=TokenExpiredError(status_code=401))
     record_mock = AsyncMock()
-    patches, client_patch = _common_patches(settings=settings, scraper=scraper, record_mock=record_mock)
+    patches, client_patch = _common_patches(
+        settings=settings, scraper=scraper, record_mock=record_mock
+    )
     for p in patches:
         p.start()
     _install_client(client_patch)

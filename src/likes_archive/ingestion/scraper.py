@@ -75,7 +75,8 @@ class LikesScraper:
                     tweet_id = parser.tweet_id
                 except KeyError:
                     continue
-                if not self._settings.scrape_force_full_refetch and await self._repo.exists(tweet_id):
+                already_known = await self._repo.exists(tweet_id)
+                if not self._settings.scrape_force_full_refetch and already_known:
                     result.reached_known = True
                     result.stopped_at_tweet_id = tweet_id
                     break
@@ -120,7 +121,8 @@ class LikesScraper:
 
 
 def _extract_entries(raw_data: dict) -> list[dict]:
-    return raw_data["data"]["user"]["result"]["timeline_v2"]["timeline"]["instructions"][0]["entries"]
+    instructions = raw_data["data"]["user"]["result"]["timeline_v2"]["timeline"]["instructions"]
+    return instructions[0]["entries"]
 
 
 def _extract_cursor(entries: list[dict]) -> str | None:
