@@ -14,9 +14,7 @@ Group=likes
 WorkingDirectory=/opt/likes-archive
 EnvironmentFile=/etc/likes-archive/secrets.env
 EnvironmentFile=-/etc/likes-archive/config.env
-ExecStart=/opt/likes-archive/.venv/bin/uvicorn \
-    likes_archive.web.app:create_app --factory \
-    --host ${HOST} --port ${PORT}
+ExecStart=/opt/likes-archive/.venv/bin/likes-archive serve
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal

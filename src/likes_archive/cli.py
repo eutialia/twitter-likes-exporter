@@ -44,9 +44,13 @@ def _main() -> None:
 @db_app.command("upgrade")
 def db_upgrade() -> None:
     """Apply all pending Alembic migrations to head."""
+    # Resolve alembic.ini relative to this file so the command works from any cwd.
+    # cli.py lives at src/likes_archive/cli.py → parents[2] is the repo root.
+    ini = Path(__file__).resolve().parents[2] / "alembic.ini"
     subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "head"],
         check=True,
+        cwd=str(ini.parent),
     )
     typer.echo("Database migrations applied successfully.")
 

@@ -30,10 +30,14 @@ chown likes:likes /mnt/media/likes/backups
 Postgres runs on the Proxmox host against a ZFS-backed volume. The LXC connects over TCP via `DATABASE_URL`.
 
 ```sql
-CREATE DATABASE likes_archive;
 CREATE USER likes WITH PASSWORD '<password>';
-GRANT ALL ON DATABASE likes_archive TO likes;
+CREATE DATABASE likes_archive OWNER likes;
 ```
+
+> **PG15+ note:** `GRANT ALL ON DATABASE` no longer grants CREATE on `schema public`
+> (behaviour changed in PostgreSQL 15, which Debian 12 ships). Making `likes` the
+> database **owner** is the cleanest fix and lets Alembic create tables without
+> additional schema-level grants.
 
 ---
 
@@ -162,6 +166,11 @@ chmod 0644 /etc/cron.d/likes-archive-backup
 ```
 
 This runs `pg_dump | gzip` nightly at 03:00, writing to `MEDIA_ROOT/backups/`, and prunes dumps older than 30 days at 03:30. The NAS ZFS snapshot strategy covers the media files.
+
+> The cron command strips the `+asyncpg` SQLAlchemy dialect suffix from
+> `DATABASE_URL` before passing it to pg_dump (libpq only accepts
+> `postgresql://` or `postgres://`). The backups directory is created
+> automatically if it doesn't exist.
 
 ---
 
