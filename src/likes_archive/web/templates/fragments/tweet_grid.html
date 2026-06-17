@@ -1,0 +1,9 @@
+{% from "macros/tweet.html" import tweet_card %}
+{% for tweet in tweets %}{{ tweet_card(tweet) }}{% endfor %}
+{% if next_cursor and next_page_url %}
+<div
+  hx-get="{{ next_page_url }}"
+  hx-trigger="revealed"
+  hx-swap="afterend">
+</div>
+{% endif %}

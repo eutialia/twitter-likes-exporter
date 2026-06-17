@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1.0, maximum-scale=1.0">
+  <title>Liked Tweets Archive</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <!-- HTMX 2.0.4 vendored -->
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+  <div id="token-status-banner"
+       hx-get="/internal/token-status"
+       hx-trigger="every 60s"
+       hx-swap="outerHTML">
+    {% if token_expired is defined and token_expired %}
+    <div class="token-expired-banner">
+      &#9888; Twitter token expired — scraping is paused. Please refresh your credentials.
+    </div>
+    {% endif %}
+  </div>
+  <header>
+    <form method="get" action="/search">
+      <input type="text" name="q" placeholder="Search tweets..."
+             value="{{ q | default('') }}">
+      <button type="submit">Search</button>
+    </form>
+    <select id="author-select"
+            hx-get="/api/authors"
+            hx-trigger="load"
+            hx-swap="innerHTML">
+      <option value="">All authors</option>
+    </select>
+    <script>
+      document.getElementById('author-select').addEventListener('change', function () {
+        var val = this.value;
+        var url = '/';
+        if (val) { url += '?author=' + encodeURIComponent(val); }
+        window.location.href = url;
+      });
+    </script>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

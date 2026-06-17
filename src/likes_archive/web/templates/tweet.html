@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% from "macros/tweet.html" import tweet_card %}
+{% block content %}
+<div class="tweet_list">
+  {{ tweet_card(tweet) }}
+</div>
+{% endblock %}

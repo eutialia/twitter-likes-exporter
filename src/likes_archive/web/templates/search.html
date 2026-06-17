@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Search</h1>
+{% if not q %}
+<p>Enter a query above to search your liked tweets.</p>
+{% elif not tweets %}
+<p>No results found for <strong>{{ q }}</strong>.</p>
+{% else %}
+<div class="tweet_list">
+  {% include "fragments/tweet_grid.html" %}
+</div>
+{% endif %}
+{% endblock %}
