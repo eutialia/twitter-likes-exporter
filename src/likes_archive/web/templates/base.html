@@ -13,7 +13,7 @@
   <header>
     <form method="get" action="/search">
       <input type="text" name="q" placeholder="Search tweets..."
-             value="{{ q | default('') }}">
+             value="{{ q | default('', true) }}">
       <button type="submit">Search</button>
     </form>
     <select id="author-select"

@@ -2,7 +2,7 @@
 {% set thumb = thumb_url(item) %}
 {% set murl = media_item_url(item) %}
 <div class="tweet_image">
-  {% if item.type == "photo" %}
+  {% if item.type == "photo" or not item.video_url %}
     <a href="{{ thumb }}" target="_blank">
       <img loading="lazy" decoding="async"
            {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
@@ -10,22 +10,15 @@
            src="{{ thumb }}">
     </a>
   {% elif item.type == "animated_gif" %}
-    <video autoplay loop muted playsinline
-           {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
-           {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-           poster="{{ thumb }}" src="{{ murl }}"></video>
-  {% elif item.video_url %}
-    <video controls
+    <video autoplay loop muted playsinline preload="none"
            {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
            {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
            poster="{{ thumb }}" src="{{ murl }}"></video>
   {% else %}
-    <a href="{{ thumb }}" target="_blank">
-      <img loading="lazy" decoding="async"
+    <video controls preload="none"
            {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
            {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-           src="{{ thumb }}">
-    </a>
+           poster="{{ thumb }}" src="{{ murl }}"></video>
   {% endif %}
 </div>
 {% endmacro %}

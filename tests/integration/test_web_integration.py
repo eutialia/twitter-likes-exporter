@@ -212,12 +212,11 @@ async def test_index_token_expired_banner_shown(web_client: httpx.AsyncClient) -
     """The 401 scrape_run seeded above should trigger the token-expired banner."""
     resp = await web_client.get("/")
     assert resp.status_code == 200
-    # The banner includes the word "token" or "expired" or "401" in some form;
-    # check for the fragment include element or explicit text cues in the template.
     text = resp.text
-    # The index template includes the token-status fragment or inline warning.
-    # At minimum the page should render without error.
-    assert "<body" in text or "<div" in text
+    # The token-expired banner element must be present (id="token-status-banner")
+    # and the user-facing warning text from fragments/token_banner.html must appear.
+    assert 'id="token-status-banner"' in text, "banner container must be in page"
+    assert "token expired" in text.lower(), "expired warning text must be visible"
 
 
 @pytest.mark.integration

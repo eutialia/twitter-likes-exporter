@@ -212,6 +212,36 @@ def test_video_missing_url_falls_back_to_img() -> None:
     assert "<video" not in html
 
 
+def test_animated_gif_missing_url_falls_back_to_img() -> None:
+    # animated_gif with no video_url must render <img>, not a broken <video>
+    items = [_gif_item(video_url=None)]
+    html = _render_media_collage(items)
+    assert "<img" in html
+    assert "<video" not in html
+
+
+# ---------------------------------------------------------------------------
+# Search box — base.html
+# ---------------------------------------------------------------------------
+
+
+def _render_base(q: object = None, env: Environment | None = None) -> str:
+    e = env or _make_env()
+    tpl = e.get_template("base.html")
+    return tpl.render(q=q, token_expired=False)
+
+
+def test_search_box_empty_when_q_is_none() -> None:
+    html = _render_base(q=None)
+    assert 'value="None"' not in html
+    assert 'value=""' in html
+
+
+def test_search_box_shows_query_value() -> None:
+    html = _render_base(q="snorkeling")
+    assert 'value="snorkeling"' in html
+
+
 # ---------------------------------------------------------------------------
 # Quoted tweet block
 # ---------------------------------------------------------------------------
