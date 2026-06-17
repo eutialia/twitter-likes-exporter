@@ -9,7 +9,9 @@ needed.
 from __future__ import annotations
 
 import html
+import posixpath
 import re
+from urllib.parse import urlparse
 
 _TCO_RE = re.compile(r"https://t\.co/[A-Za-z0-9]+")
 _SAFE_URL_SCHEMES = ("http://", "https://")
@@ -65,3 +67,36 @@ def render_content(
         last = match.end()
     out.append(_escape(content[last:]))
     return "".join(out).rstrip()
+
+
+def _basename(url: str) -> str:
+    """Strip query string and return the final path segment."""
+    return posixpath.basename(urlparse(url).path)
+
+
+def dedupe_parent_media(tweet: dict) -> list[dict]:
+    """Return the parent tweet's tweet_media with items removed whose thumbnail
+    basename duplicates one already shown in the quoted tweet's media.
+
+    Twitter copies the quoted tweet's media into the parent for "quote with
+    media" tweets, so the same files appear in both lists. Drop items from the
+    parent that the embed card will already show.
+
+    Never mutates the input. Returns the original list object when nothing
+    is dropped (avoids a copy on the common case).
+    """
+    media_items: list[dict] = tweet.get("tweet_media") or []
+    quoted = tweet.get("quoted_tweet")
+    if not quoted or not media_items:
+        return media_items
+
+    quoted_thumbs = {
+        _basename(m["thumbnail_url"])
+        for m in (quoted.get("tweet_media") or [])
+    }
+    if not quoted_thumbs:
+        return media_items
+
+    filtered = [m for m in media_items if _basename(m["thumbnail_url"]) not in quoted_thumbs]
+    # Return original object when nothing was dropped to avoid an unnecessary copy.
+    return filtered if len(filtered) != len(media_items) else media_items
