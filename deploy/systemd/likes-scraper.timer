@@ -1,0 +1,16 @@
+# /etc/systemd/system/likes-scraper.timer
+# Operator-adjustable: copy to /etc/systemd/system/ and run `systemctl daemon-reload`.
+# Override cadence with `systemctl edit likes-scraper.timer` (drop-in OnUnitActiveSec=).
+
+[Unit]
+Description=Likes Archive — scraper timer
+Requires=likes-scraper.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Unit=likes-scraper.service
+
+[Install]
+WantedBy=timers.target

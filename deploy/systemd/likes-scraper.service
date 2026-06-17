@@ -1,0 +1,19 @@
+# /etc/systemd/system/likes-scraper.service
+# Operator-adjustable: copy to /etc/systemd/system/ and run `systemctl daemon-reload`.
+# This is a one-shot unit driven by likes-scraper.timer — do not enable it directly.
+
+[Unit]
+Description=Likes Archive — scraper (one-shot)
+After=network.target postgresql.service likes-web.service
+RequiresMountsFor=/mnt/media/likes
+
+[Service]
+Type=oneshot
+User=likes
+Group=likes
+WorkingDirectory=/opt/likes-archive
+EnvironmentFile=/etc/likes-archive/secrets.env
+EnvironmentFile=-/etc/likes-archive/config.env
+ExecStart=/opt/likes-archive/.venv/bin/likes-archive scrape
+StandardOutput=journal
+StandardError=journal

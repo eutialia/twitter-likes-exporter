@@ -1,0 +1,20 @@
+# /etc/cron.d/likes-archive-backup
+#
+# Nightly Postgres metadata backup written under MEDIA_ROOT/backups so the NAS
+# ZFS snapshot also captures the DB dump alongside media files.
+#
+# Prerequisites:
+#   - MEDIA_ROOT/backups must exist and be writable by the 'likes' user:
+#       mkdir -p /mnt/media/likes/backups
+#       chown likes:likes /mnt/media/likes/backups
+#   - The 'likes' user must be able to connect to Postgres (DATABASE_URL in env).
+#   - pg_dump must be on PATH for the 'likes' user (install postgresql-client in the LXC).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# 03:00 — dump and compress
+0 3 * * *  likes  . /etc/likes-archive/secrets.env && pg_dump $DATABASE_URL | gzip > /mnt/media/likes/backups/likes_archive_$(date +\%Y-\%m-\%d).sql.gz
+
+# 03:30 — remove dumps older than 30 days
+30 3 * * * likes  find /mnt/media/likes/backups -name '*.sql.gz' -mtime +30 -delete

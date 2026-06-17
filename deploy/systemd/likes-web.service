@@ -1,0 +1,26 @@
+# /etc/systemd/system/likes-web.service
+# Operator-adjustable: copy to /etc/systemd/system/ and run `systemctl daemon-reload`.
+# Override individual settings with `systemctl edit likes-web.service`.
+
+[Unit]
+Description=Likes Archive — FastAPI web server
+After=network.target postgresql.service
+RequiresMountsFor=/mnt/media/likes
+
+[Service]
+Type=simple
+User=likes
+Group=likes
+WorkingDirectory=/opt/likes-archive
+EnvironmentFile=/etc/likes-archive/secrets.env
+EnvironmentFile=-/etc/likes-archive/config.env
+ExecStart=/opt/likes-archive/.venv/bin/uvicorn \
+    likes_archive.web.app:create_app --factory \
+    --host ${HOST} --port ${PORT}
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
