@@ -1,7 +1,6 @@
 import re
 from urllib.parse import urlparse
 
-
 MEDIA_TYPE_PHOTO = "photo"
 MEDIA_TYPE_VIDEO = "video"
 MEDIA_TYPE_ANIMATED_GIF = "animated_gif"
@@ -44,6 +43,21 @@ def _resolution_score(url):
     return int(m.group(1)) * int(m.group(2)) if m else 0
 
 
+def _unwrap_tweet_result(result):
+    """Modern responses sometimes wrap the real Tweet in
+    `TweetWithVisibilityResults.tweet`. Quoted tweets that are
+    deleted/protected/withheld arrive as `TweetUnavailable` / `TweetTombstone`
+    with no `legacy` — those return None so the caller can skip them."""
+    if not isinstance(result, dict):
+        return None
+    if "legacy" in result:
+        return result
+    inner = result.get("tweet")
+    if isinstance(inner, dict) and "legacy" in inner:
+        return inner
+    return None
+
+
 def migrate_legacy_tweet_schema(tweet):
     """Convert legacy {tweet_media_urls, tweet_video_urls} into the unified
     {tweet_media: [{type, thumbnail_url, video_url}]} list in place.
@@ -65,7 +79,8 @@ def migrate_legacy_tweet_schema(tweet):
         if media_type != MEDIA_TYPE_PHOTO:
             thumb_key = _media_key(thumb)
             mp4s = [
-                v for v in video_urls
+                v
+                for v in video_urls
                 if (v.endswith(".mp4") or "/vid/" in v) and _media_key(v) == thumb_key
             ]
             if not mp4s:
@@ -117,7 +132,9 @@ class TweetParser:
             "user_avatar_url": self.user_avatar_url,
             "tweet_content": self.tweet_content,
             "tweet_media": self.media,
+            "tweet_urls": self.urls,
             "tweet_created_at": self.tweet_created_at,
+            "quoted_tweet": self.quoted_tweet,
         }
 
     @property
@@ -170,6 +187,9 @@ class TweetParser:
                 "type": media_type,
                 "thumbnail_url": entry["media_url_https"],
                 "video_url": None,
+                # t.co self-link that Twitter appends to full_text for this
+                # media bundle. Captured so the renderer can strip it.
+                "text_url": entry.get("url"),
             }
             if media_type in _VIDEO_MEDIA_TYPES and "video_info" in entry:
                 item["video_url"] = _best_mp4_variant(entry["video_info"]["variants"])
@@ -177,3 +197,36 @@ class TweetParser:
 
         self._media = items
         return self._media
+
+    @property
+    def urls(self):
+        """Non-media link entities: t.co → expanded_url + display_url."""
+        entities = self._key_data["legacy"].get("entities", {})
+        return [
+            {
+                "url": u["url"],
+                "expanded_url": u["expanded_url"],
+                "display_url": u["display_url"],
+            }
+            for u in entities.get("urls", [])
+        ]
+
+    @property
+    def quoted_tweet(self):
+        """Nested tweet payload for a quote-tweet, plus `permalink_url`
+        (the t.co Twitter inserts at the end of full_text in place of the
+        embed). Returns None if there is no quote or the quoted tweet is
+        unavailable."""
+        raw = self._key_data.get("quoted_status_result")
+        if not raw:
+            return None
+        inner = _unwrap_tweet_result(raw.get("result"))
+        if not inner:
+            return None
+        try:
+            nested = TweetParser(inner).tweet_as_json()
+        except KeyError:
+            return None
+        permalink = self._key_data["legacy"].get("quoted_status_permalink") or {}
+        nested["permalink_url"] = permalink.get("url")
+        return nested
