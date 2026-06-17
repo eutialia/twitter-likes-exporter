@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
+from typing import Annotated
 
 import httpx
 import typer
@@ -18,6 +20,7 @@ from likes_archive.ingestion.scraper import LikesScraper, ScraperResult
 from likes_archive.ingestion.syndication import SyndicationClient
 from likes_archive.media.downloader import MediaDownloader
 from likes_archive.media.store import FilesystemMediaStore
+from likes_archive.migrate import MigrationResult, migrate_archive, rsync_media
 
 app = typer.Typer(help="Likes Archive — manage your X/Twitter likes archive.")
 logger = logging.getLogger(__name__)
@@ -124,12 +127,103 @@ async def _notify_token_expired(client: httpx.AsyncClient, webhook_url: str) -> 
         logger.warning("Webhook notification failed: %s", exc)
 
 
+@app.command()
+def migrate(
+    json: Annotated[
+        Path,
+        typer.Option(
+            "--json",
+            help="Path to the source liked_tweets.json file.",
+            exists=True,
+            readable=True,
+        ),
+    ] = Path("liked_tweets.json"),
+    enrich: Annotated[
+        bool,
+        typer.Option(
+            "--enrich/--no-enrich",
+            help="Run the EnrichmentPipeline on each tweet before upserting (network; slow).",
+        ),
+    ] = False,
+    skip_rsync: Annotated[
+        bool,
+        typer.Option("--skip-rsync", help="Skip copying media files via rsync."),
+    ] = False,
+    media_src: Annotated[
+        Path,
+        typer.Option(
+            "--media-src",
+            help="Source directory of the legacy media tree (rsync source).",
+        ),
+    ] = Path("tweet_likes_html"),
+) -> None:
+    """One-time import of liked_tweets.json into Postgres + rsync of media onto MEDIA_ROOT."""
+    exit_code = asyncio.run(_run_migrate(json, enrich, skip_rsync, media_src))
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)
+
+
+async def _run_migrate(
+    json_path: Path,
+    enrich: bool,
+    skip_rsync: bool,
+    media_src: Path,
+) -> int:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        if enrich:
+            async with (
+                httpx.AsyncClient(
+                    timeout=httpx.Timeout(30.0),
+                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+                ) as client,
+                session_factory() as session,
+            ):
+                result: MigrationResult = await migrate_archive(
+                    json_path=json_path,
+                    session=session,
+                    enrich=True,
+                    http_client=client,
+                    syndication=SyndicationClient(client),
+                    settings=settings,
+                )
+                await session.commit()
+        else:
+            async with session_factory() as session:
+                result = await migrate_archive(
+                    json_path=json_path,
+                    session=session,
+                    enrich=False,
+                )
+                await session.commit()
+
+        typer.echo("=== Migration Summary ===")
+        typer.echo(f"JSON source tweets:        {result.total}")
+        typer.echo(f"  - schema upgraded:       {result.schema_upgraded}")
+        typer.echo(f"DB tweets upserted:        {result.upserted}")
+
+        if not skip_rsync:
+            media_root = Path(settings.media_root)
+            typer.echo(f"Rsyncing media from {media_src} → {media_root} …")
+            rsync_media(media_src, media_root)
+            typer.echo("Media rsync complete.")
+        else:
+            typer.echo("Media rsync skipped (--skip-rsync).")
+
+        return 0
+    except Exception as exc:
+        logger.exception("Migration failed: %s", exc)
+        typer.echo(f"ERROR: Migration failed — {exc}", err=True)
+        return 1
+    finally:
+        await engine.dispose()
+
+
 # Placeholder stubs for later milestones — DO NOT IMPLEMENT YET
 # @app.command()
 # def serve() -> None:  # Milestone 5
-#     ...
-# @app.command()
-# def migrate() -> None:  # Milestone 4
 #     ...
 
 
