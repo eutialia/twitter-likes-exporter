@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from likes_archive.cli import app
 from likes_archive.config import Settings
-from likes_archive.migrate import MigrationResult
+from likes_archive.migrate import MigrationResult, ReconcileReport
 
 runner = CliRunner()
 
@@ -48,6 +48,15 @@ def _mock_engine() -> MagicMock:
     return engine
 
 
+def _ok_reconcile_report() -> ReconcileReport:
+    return ReconcileReport(
+        db_count=3,
+        distinct_referenced_thumbnails=0,
+        media_on_disk={"avatars": 0, "tweets": 0, "videos": 0},
+        diverged=False,
+    )
+
+
 def _install_client(client_patch):
     """Start *client_patch* and make httpx.AsyncClient() an async context manager.
 
@@ -71,6 +80,7 @@ def test_migrate_success_calls_migrate_archive_and_rsync(tmp_path):
     result = MigrationResult(total=3, schema_upgraded=1, upserted=3)
     migrate_mock = AsyncMock(return_value=result)
     rsync_mock = MagicMock()
+    reconcile_mock = AsyncMock(return_value=_ok_reconcile_report())
     session = _mock_session()
     engine = _mock_engine()
 
@@ -80,6 +90,7 @@ def test_migrate_success_calls_migrate_archive_and_rsync(tmp_path):
         patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
         patch("likes_archive.cli.migrate_archive", migrate_mock),
         patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
     ]
     for p in patches:
         p.start()
@@ -109,6 +120,7 @@ def test_migrate_skip_rsync_does_not_call_rsync(tmp_path):
     result = MigrationResult(total=0, schema_upgraded=0, upserted=0)
     migrate_mock = AsyncMock(return_value=result)
     rsync_mock = MagicMock()
+    reconcile_mock = AsyncMock(return_value=_ok_reconcile_report())
     session = _mock_session()
     engine = _mock_engine()
 
@@ -118,6 +130,7 @@ def test_migrate_skip_rsync_does_not_call_rsync(tmp_path):
         patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
         patch("likes_archive.cli.migrate_archive", migrate_mock),
         patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
     ]
     for p in patches:
         p.start()
@@ -144,6 +157,7 @@ def test_migrate_enrich_flag_passed_through(tmp_path):
     result = MigrationResult(total=0, schema_upgraded=0, upserted=0)
     migrate_mock = AsyncMock(return_value=result)
     rsync_mock = MagicMock()
+    reconcile_mock = AsyncMock(return_value=_ok_reconcile_report())
     session = _mock_session()
     engine = _mock_engine()
 
@@ -153,6 +167,7 @@ def test_migrate_enrich_flag_passed_through(tmp_path):
         patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
         patch("likes_archive.cli.migrate_archive", migrate_mock),
         patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
         patch("likes_archive.cli.SyndicationClient", return_value=MagicMock()),
     ]
     client_patch = patch("likes_archive.cli.httpx.AsyncClient")
@@ -191,6 +206,7 @@ def test_migrate_summary_printed(tmp_path):
     result = MigrationResult(total=100, schema_upgraded=12, upserted=100)
     migrate_mock = AsyncMock(return_value=result)
     rsync_mock = MagicMock()
+    reconcile_mock = AsyncMock(return_value=_ok_reconcile_report())
     session = _mock_session()
     engine = _mock_engine()
 
@@ -200,6 +216,7 @@ def test_migrate_summary_printed(tmp_path):
         patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
         patch("likes_archive.cli.migrate_archive", migrate_mock),
         patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
     ]
     for p in patches:
         p.start()
@@ -216,6 +233,176 @@ def test_migrate_summary_printed(tmp_path):
     assert "100" in res.output
     assert "12" in res.output
     assert "upserted" in res.output.lower()
+
+
+def test_migrate_dry_run_calls_migrate_archive_with_dry_run_true_and_skips_rsync(tmp_path):
+    """--dry-run must pass dry_run=True to migrate_archive and must NOT call rsync_media."""
+    settings = _settings(media_root=str(tmp_path / "media"))
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text("[]")
+    media_src = tmp_path / "tweet_likes_html"
+    media_src.mkdir()
+
+    result = MigrationResult(total=5, schema_upgraded=1, upserted=0)
+    migrate_mock = AsyncMock(return_value=result)
+    rsync_mock = MagicMock()
+    session = _mock_session()
+    engine = _mock_engine()
+
+    patches = [
+        patch("likes_archive.cli.get_settings", return_value=settings),
+        patch("likes_archive.cli.make_engine", return_value=engine),
+        patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
+        patch("likes_archive.cli.migrate_archive", migrate_mock),
+        patch("likes_archive.cli.rsync_media", rsync_mock),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        res = runner.invoke(
+            app,
+            ["migrate", "--json", str(json_path), "--media-src", str(media_src), "--dry-run"],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert res.exit_code == 0, res.output
+    migrate_mock.assert_awaited_once()
+    kw = migrate_mock.call_args.kwargs
+    assert kw.get("dry_run") is True
+    rsync_mock.assert_not_called()
+    assert "DRY RUN" in res.output
+
+
+def test_migrate_dry_run_output_contains_would_import(tmp_path):
+    """--dry-run output must clearly state nothing was written and show counts."""
+    settings = _settings(media_root=str(tmp_path / "media"))
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text("[]")
+    media_src = tmp_path / "tweet_likes_html"
+    media_src.mkdir()
+
+    result = MigrationResult(total=42, schema_upgraded=7, upserted=0)
+    migrate_mock = AsyncMock(return_value=result)
+    rsync_mock = MagicMock()
+    session = _mock_session()
+    engine = _mock_engine()
+
+    patches = [
+        patch("likes_archive.cli.get_settings", return_value=settings),
+        patch("likes_archive.cli.make_engine", return_value=engine),
+        patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
+        patch("likes_archive.cli.migrate_archive", migrate_mock),
+        patch("likes_archive.cli.rsync_media", rsync_mock),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        res = runner.invoke(
+            app,
+            ["migrate", "--json", str(json_path), "--media-src", str(media_src), "--dry-run"],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert res.exit_code == 0, res.output
+    assert "42" in res.output
+    assert "7" in res.output
+    assert "nothing written" in res.output.lower()
+
+
+def test_migrate_reconcile_diverged_exits_nonzero(tmp_path):
+    """When reconcile reports diverged=True, the command must exit non-zero."""
+    from likes_archive.migrate import ReconcileReport
+
+    settings = _settings(media_root=str(tmp_path / "media"))
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text("[]")
+    media_src = tmp_path / "tweet_likes_html"
+    media_src.mkdir()
+
+    result = MigrationResult(total=3, schema_upgraded=0, upserted=3)
+    migrate_mock = AsyncMock(return_value=result)
+    rsync_mock = MagicMock()
+    diverged_report = ReconcileReport(
+        db_count=2,
+        distinct_referenced_thumbnails=1,
+        media_on_disk={"avatars": 0, "tweets": 0, "videos": 0},
+        diverged=True,
+    )
+    reconcile_mock = AsyncMock(return_value=diverged_report)
+    session = _mock_session()
+    engine = _mock_engine()
+
+    patches = [
+        patch("likes_archive.cli.get_settings", return_value=settings),
+        patch("likes_archive.cli.make_engine", return_value=engine),
+        patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
+        patch("likes_archive.cli.migrate_archive", migrate_mock),
+        patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        res = runner.invoke(
+            app,
+            ["migrate", "--json", str(json_path), "--media-src", str(media_src), "--skip-rsync"],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert res.exit_code != 0
+    assert "DIVERGED" in res.output
+
+
+def test_migrate_reconcile_ok_exits_zero(tmp_path):
+    """When reconcile reports diverged=False, the command must exit 0."""
+    from likes_archive.migrate import ReconcileReport
+
+    settings = _settings(media_root=str(tmp_path / "media"))
+    json_path = tmp_path / "liked_tweets.json"
+    json_path.write_text("[]")
+    media_src = tmp_path / "tweet_likes_html"
+    media_src.mkdir()
+
+    result = MigrationResult(total=3, schema_upgraded=0, upserted=3)
+    migrate_mock = AsyncMock(return_value=result)
+    rsync_mock = MagicMock()
+    ok_report = ReconcileReport(
+        db_count=3,
+        distinct_referenced_thumbnails=2,
+        media_on_disk={"avatars": 5, "tweets": 10, "videos": 2},
+        diverged=False,
+    )
+    reconcile_mock = AsyncMock(return_value=ok_report)
+    session = _mock_session()
+    engine = _mock_engine()
+
+    patches = [
+        patch("likes_archive.cli.get_settings", return_value=settings),
+        patch("likes_archive.cli.make_engine", return_value=engine),
+        patch("likes_archive.cli.async_sessionmaker", return_value=lambda: session),
+        patch("likes_archive.cli.migrate_archive", migrate_mock),
+        patch("likes_archive.cli.rsync_media", rsync_mock),
+        patch("likes_archive.cli.reconcile", reconcile_mock),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        res = runner.invoke(
+            app,
+            ["migrate", "--json", str(json_path), "--media-src", str(media_src), "--skip-rsync"],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert res.exit_code == 0, res.output
+    assert "OK" in res.output
 
 
 def test_migrate_engine_disposed_on_error(tmp_path):

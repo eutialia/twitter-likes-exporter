@@ -304,3 +304,154 @@ async def test_migrate_archive_enrich_false_skips_pipeline(tmp_path: Path) -> No
         instance.bulk_upsert = AsyncMock()
         await migrate_archive(json_path=json_path, session=fake_session, enrich=False)
         MockPipeline.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# migrate_archive — dry_run=True skips bulk_upsert
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_archive_dry_run_skips_upsert(tmp_path: Path) -> None:
+    """dry_run=True must NOT call bulk_upsert and must return upserted == 0."""
+    from likes_archive.migrate import migrate_archive
+
+    json_path = _write_fixture_json(tmp_path)
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+
+    with patch("likes_archive.migrate.TweetRepository") as MockRepo:
+        instance = MockRepo.return_value
+        instance.bulk_upsert = AsyncMock()
+        result = await migrate_archive(json_path=json_path, session=fake_session, dry_run=True)
+        instance.bulk_upsert.assert_not_called()
+
+    assert result.upserted == 0
+    assert result.total == 3
+
+
+@pytest.mark.asyncio
+async def test_migrate_archive_dry_run_false_still_upserts(tmp_path: Path) -> None:
+    """dry_run=False (default) must call bulk_upsert as normal."""
+    from likes_archive.migrate import migrate_archive
+
+    json_path = _write_fixture_json(tmp_path)
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+
+    with patch("likes_archive.migrate.TweetRepository") as MockRepo:
+        instance = MockRepo.return_value
+        instance.bulk_upsert = AsyncMock()
+        result = await migrate_archive(json_path=json_path, session=fake_session, dry_run=False)
+        assert instance.bulk_upsert.called
+
+    assert result.upserted == 3
+
+
+# ------------------------------------------------------------------
+# reconcile — unit tests (mocked session)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reconcile_diverged_when_db_count_differs() -> None:
+    """reconcile must return diverged=True when DB count != len(expected_tweet_ids)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from likes_archive.migrate import reconcile
+
+    session = MagicMock()
+    # First execute → db_count = 2; second execute → distinct thumbnails = 1
+    r1 = MagicMock()
+    r1.scalar_one.return_value = 2
+    r2 = MagicMock()
+    r2.scalar_one.return_value = 1
+    session.execute = AsyncMock(side_effect=[r1, r2])
+
+    report = await reconcile(
+        session=session,
+        media_root=Path("/nonexistent"),
+        expected_tweet_ids={"a", "b", "c"},  # 3 ids but DB has 2
+    )
+
+    assert report.db_count == 2
+    assert report.diverged is True
+
+
+@pytest.mark.asyncio
+async def test_reconcile_not_diverged_when_counts_match() -> None:
+    """reconcile must return diverged=False when DB count == len(expected_tweet_ids)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from likes_archive.migrate import reconcile
+
+    session = MagicMock()
+    r1 = MagicMock()
+    r1.scalar_one.return_value = 3
+    r2 = MagicMock()
+    r2.scalar_one.return_value = 2
+    session.execute = AsyncMock(side_effect=[r1, r2])
+
+    report = await reconcile(
+        session=session,
+        media_root=Path("/nonexistent"),
+        expected_tweet_ids={"a", "b", "c"},  # 3 ids, DB has 3
+    )
+
+    assert report.db_count == 3
+    assert report.diverged is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_on_disk_counts_missing_dirs() -> None:
+    """reconcile must return 0 for any media subdir that doesn't exist."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from likes_archive.migrate import reconcile
+
+    session = MagicMock()
+    r1 = MagicMock()
+    r1.scalar_one.return_value = 0
+    r2 = MagicMock()
+    r2.scalar_one.return_value = 0
+    session.execute = AsyncMock(side_effect=[r1, r2])
+
+    report = await reconcile(
+        session=session,
+        media_root=Path("/nonexistent_media_root_xyz"),
+        expected_tweet_ids=set(),
+    )
+
+    assert report.media_on_disk == {"avatars": 0, "tweets": 0, "videos": 0}
+
+
+@pytest.mark.asyncio
+async def test_reconcile_on_disk_counts_real_files(tmp_path: Path) -> None:
+    """reconcile must count regular files in the correct subdirs."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from likes_archive.migrate import reconcile
+
+    # Set up fake media dir structure
+    (tmp_path / "images" / "avatars").mkdir(parents=True)
+    (tmp_path / "images" / "tweets").mkdir(parents=True)
+    (tmp_path / "videos" / "tweets").mkdir(parents=True)
+    (tmp_path / "images" / "avatars" / "a.jpg").write_bytes(b"")
+    (tmp_path / "images" / "avatars" / "b.jpg").write_bytes(b"")
+    (tmp_path / "images" / "tweets" / "c.jpg").write_bytes(b"")
+    (tmp_path / "videos" / "tweets" / "d.mp4").write_bytes(b"")
+
+    session = MagicMock()
+    r1 = MagicMock()
+    r1.scalar_one.return_value = 0
+    r2 = MagicMock()
+    r2.scalar_one.return_value = 0
+    session.execute = AsyncMock(side_effect=[r1, r2])
+
+    report = await reconcile(
+        session=session,
+        media_root=tmp_path,
+        expected_tweet_ids=set(),
+    )
+
+    assert report.media_on_disk == {"avatars": 2, "tweets": 1, "videos": 1}

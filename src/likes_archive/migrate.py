@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from likes_archive.config import Settings
@@ -33,6 +34,15 @@ class MigrationResult:
     total: int
     schema_upgraded: int
     upserted: int
+    tweet_ids: frozenset[str] = frozenset()
+
+
+@dataclass
+class ReconcileReport:
+    db_count: int
+    distinct_referenced_thumbnails: int
+    media_on_disk: dict[str, int]
+    diverged: bool
 
 
 async def migrate_archive(
@@ -40,6 +50,7 @@ async def migrate_archive(
     json_path: Path,
     session: AsyncSession,
     enrich: bool = False,
+    dry_run: bool = False,
     http_client: httpx.AsyncClient | None = None,
     syndication: SyndicationClient | None = None,
     settings: Settings | None = None,
@@ -52,13 +63,15 @@ async def migrate_archive(
         session:   Caller-owned AsyncSession; this function never commits.
         enrich:    When True, run EnrichmentPipeline on each tweet before upsert
                    (network calls — default False for fast offline migration).
+        dry_run:   When True, perform all in-memory processing but skip bulk_upsert.
+                   Returns upserted=0 and tweet_ids from the loaded JSON.
         http_client: httpx.AsyncClient given to EnrichmentPipeline when enrich=True.
         syndication: SyndicationClient given to EnrichmentPipeline when enrich=True.
         settings:    Settings given to EnrichmentPipeline when enrich=True. Required
                      (non-None) only on the enrich path.
 
     Returns:
-        MigrationResult with counts: total, schema_upgraded, upserted.
+        MigrationResult with counts: total, schema_upgraded, upserted, tweet_ids.
     """
     raw: list[dict[str, Any]] = json.loads(json_path.read_text(encoding="utf-8"))
     schema_upgraded = migrate_tweet_list(raw)
@@ -89,8 +102,16 @@ async def migrate_archive(
             # enrich() re-renders rendered_content after t.co expansion — correct order.
             tweet = await pipeline.enrich(tweet)  # noqa: PLW2901
 
-    repo = TweetRepository(session)
     total = len(raw)
+    tweet_ids: frozenset[str] = frozenset(t["tweet_id"] for t in raw if "tweet_id" in t)
+
+    if dry_run:
+        logger.info("DRY RUN — skipping bulk_upsert (%d tweets processed in memory).", total)
+        return MigrationResult(
+            total=total, schema_upgraded=schema_upgraded, upserted=0, tweet_ids=tweet_ids
+        )
+
+    repo = TweetRepository(session)
     upserted = 0
     for i in range(0, total, _BATCH_SIZE):
         batch = raw[i : i + _BATCH_SIZE]
@@ -103,7 +124,61 @@ async def migrate_archive(
             len(batch),
         )
 
-    return MigrationResult(total=total, schema_upgraded=schema_upgraded, upserted=upserted)
+    return MigrationResult(
+        total=total, schema_upgraded=schema_upgraded, upserted=upserted, tweet_ids=tweet_ids
+    )
+
+
+def _count_files(directory: Path) -> int:
+    """Return the count of regular files directly under *directory*; 0 if it doesn't exist."""
+    if not directory.is_dir():
+        return 0
+    return sum(1 for entry in directory.iterdir() if entry.is_file())
+
+
+async def reconcile(
+    *,
+    session: AsyncSession,
+    media_root: Path,
+    expected_tweet_ids: set[str],
+) -> ReconcileReport:
+    """Compare DB state against expected tweet IDs and on-disk media counts.
+
+    Args:
+        session:             Caller-owned AsyncSession; read-only.
+        media_root:          MEDIA_ROOT directory (may or may not exist).
+        expected_tweet_ids:  Set of tweet_ids from the source JSON.
+
+    Returns:
+        ReconcileReport with db_count, distinct_referenced_thumbnails,
+        media_on_disk (keys: avatars, tweets, videos), and diverged flag.
+    """
+    db_count_row = await session.execute(text("SELECT COUNT(*) FROM tweets"))
+    db_count: int = db_count_row.scalar_one()
+
+    thumb_row = await session.execute(
+        text(
+            "SELECT COUNT(DISTINCT media->>'thumbnail_url') "
+            "FROM tweets, "
+            "jsonb_array_elements(COALESCE(payload->'tweet_media', '[]'::jsonb)) AS media"
+        )
+    )
+    distinct_thumbnails: int = thumb_row.scalar_one()
+
+    media_on_disk = {
+        "avatars": _count_files(media_root / "images" / "avatars"),
+        "tweets": _count_files(media_root / "images" / "tweets"),
+        "videos": _count_files(media_root / "videos" / "tweets"),
+    }
+
+    diverged = db_count != len(expected_tweet_ids)
+
+    return ReconcileReport(
+        db_count=db_count,
+        distinct_referenced_thumbnails=distinct_thumbnails,
+        media_on_disk=media_on_disk,
+        diverged=diverged,
+    )
 
 
 def rsync_media(media_src: Path, media_root: Path) -> None:

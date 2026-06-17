@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from likes_archive.migrate import migrate_archive
+from likes_archive.migrate import migrate_archive, reconcile
 
 
 def _to_asyncpg(url: str) -> str:
@@ -219,3 +219,120 @@ async def test_migrate_archive_integration_legacy_fields_correct(
     assert "tweet_media" in payload
     assert "tweet_media_urls" not in payload
     assert isinstance(payload["tweet_media"], list)
+
+
+# ------------------------------------------------------------------
+# reconcile — integration tests (real PG)
+# _LEGACY_TWEET has no tweet_media key (legacy schema → empty list after migration)
+# _PLAIN_TWEET  has tweet_media: [] (explicitly empty)
+# Both exercise the COALESCE/empty-media path in the thumbnail query.
+# ------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reconcile_integration_db_count_and_not_diverged(
+    migrate_engine, tmp_path: Path
+) -> None:
+    """After migrating 3 tweets, reconcile must report db_count=3 and diverged=False."""
+    session_factory = async_sessionmaker(migrate_engine, expire_on_commit=False)
+    json_path = _write_fixture(tmp_path)
+
+    async with session_factory() as session:
+        result = await migrate_archive(json_path=json_path, session=session)
+        await session.commit()
+
+    async with session_factory() as rec_session:
+        report = await reconcile(
+            session=rec_session,
+            media_root=tmp_path / "empty_media",  # dir does not exist → 0 on-disk counts
+            expected_tweet_ids=set(result.tweet_ids),
+        )
+
+    assert report.db_count == 3
+    assert report.diverged is False
+    assert isinstance(report.distinct_referenced_thumbnails, int)
+    assert report.distinct_referenced_thumbnails >= 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reconcile_integration_diverged_when_ids_mismatch(
+    migrate_engine, tmp_path: Path
+) -> None:
+    """reconcile returns diverged=True when expected_tweet_ids doesn't match DB count."""
+    session_factory = async_sessionmaker(migrate_engine, expire_on_commit=False)
+    json_path = _write_fixture(tmp_path)
+
+    async with session_factory() as session:
+        await migrate_archive(json_path=json_path, session=session)
+        await session.commit()
+
+    async with session_factory() as rec_session:
+        report = await reconcile(
+            session=rec_session,
+            media_root=tmp_path / "empty_media2",
+            expected_tweet_ids={"1001", "1002", "1003", "9999"},  # 4 expected, DB has 3
+        )
+
+    assert report.db_count == 3
+    assert report.diverged is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reconcile_integration_thumbnail_query_on_empty_media(
+    migrate_engine, tmp_path: Path
+) -> None:
+    """The thumbnail COUNT query must not error when tweets have empty tweet_media arrays.
+
+    Exercises the COALESCE path: _LEGACY_TWEET (tweet_media=[]) and _PLAIN_TWEET
+    (tweet_media=[]) have no media items; the cross-join must produce 0 rows without error.
+    """
+    session_factory = async_sessionmaker(migrate_engine, expire_on_commit=False)
+    json_path = _write_fixture(tmp_path)
+
+    async with session_factory() as session:
+        result = await migrate_archive(json_path=json_path, session=session)
+        await session.commit()
+
+    async with session_factory() as rec_session:
+        report = await reconcile(
+            session=rec_session,
+            media_root=tmp_path / "empty_media3",
+            expected_tweet_ids=set(result.tweet_ids),
+        )
+
+    # Query must return a non-negative integer (not raise)
+    assert isinstance(report.distinct_referenced_thumbnails, int)
+    assert report.distinct_referenced_thumbnails >= 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reconcile_integration_on_disk_counts(migrate_engine, tmp_path: Path) -> None:
+    """reconcile must count files in media subdirs; missing dirs return 0."""
+    session_factory = async_sessionmaker(migrate_engine, expire_on_commit=False)
+    json_path = _write_fixture(tmp_path)
+
+    async with session_factory() as session:
+        result = await migrate_archive(json_path=json_path, session=session)
+        await session.commit()
+
+    # Set up a fake media root with some files
+    media_root = tmp_path / "media_with_files"
+    (media_root / "images" / "avatars").mkdir(parents=True)
+    (media_root / "images" / "tweets").mkdir(parents=True)
+    (media_root / "videos" / "tweets").mkdir(parents=True)
+    (media_root / "images" / "avatars" / "1.jpg").write_bytes(b"")
+    (media_root / "images" / "avatars" / "2.jpg").write_bytes(b"")
+    (media_root / "images" / "tweets" / "3.jpg").write_bytes(b"")
+
+    async with session_factory() as rec_session:
+        report = await reconcile(
+            session=rec_session,
+            media_root=media_root,
+            expected_tweet_ids=set(result.tweet_ids),
+        )
+
+    assert report.media_on_disk == {"avatars": 2, "tweets": 1, "videos": 0}

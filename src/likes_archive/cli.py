@@ -20,7 +20,13 @@ from likes_archive.ingestion.scraper import LikesScraper, ScraperResult
 from likes_archive.ingestion.syndication import SyndicationClient
 from likes_archive.media.downloader import MediaDownloader
 from likes_archive.media.store import FilesystemMediaStore
-from likes_archive.migrate import MigrationResult, migrate_archive, rsync_media
+from likes_archive.migrate import (
+    MigrationResult,
+    ReconcileReport,
+    migrate_archive,
+    reconcile,
+    rsync_media,
+)
 
 app = typer.Typer(help="Likes Archive — manage your X/Twitter likes archive.")
 logger = logging.getLogger(__name__)
@@ -156,9 +162,15 @@ def migrate(
             help="Source directory of the legacy media tree (rsync source).",
         ),
     ] = Path("tweet_likes_html"),
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Process tweets in memory without writing to DB or rsyncing media."
+        ),
+    ] = False,
 ) -> None:
     """One-time import of liked_tweets.json into Postgres + rsync of media onto MEDIA_ROOT."""
-    exit_code = asyncio.run(_run_migrate(json, enrich, skip_rsync, media_src))
+    exit_code = asyncio.run(_run_migrate(json, enrich, skip_rsync, media_src, dry_run))
     if exit_code != 0:
         raise typer.Exit(code=exit_code)
 
@@ -168,6 +180,7 @@ async def _run_migrate(
     enrich: bool,
     skip_rsync: bool,
     media_src: Path,
+    dry_run: bool = False,
 ) -> int:
     settings = get_settings()
     engine = make_engine(settings.database_url)
@@ -185,19 +198,30 @@ async def _run_migrate(
                     json_path=json_path,
                     session=session,
                     enrich=True,
+                    dry_run=dry_run,
                     http_client=client,
                     syndication=SyndicationClient(client),
                     settings=settings,
                 )
-                await session.commit()
+                if not dry_run:
+                    await session.commit()
         else:
             async with session_factory() as session:
                 result = await migrate_archive(
                     json_path=json_path,
                     session=session,
                     enrich=False,
+                    dry_run=dry_run,
                 )
-                await session.commit()
+                if not dry_run:
+                    await session.commit()
+
+        if dry_run:
+            typer.echo("=== DRY RUN — nothing written ===")
+            typer.echo(f"Would import:              {result.total} tweets")
+            typer.echo(f"  - schema upgraded:       {result.schema_upgraded}")
+            typer.echo("(no DB writes, no rsync)")
+            return 0
 
         typer.echo("=== Migration Summary ===")
         typer.echo(f"JSON source tweets:        {result.total}")
@@ -212,6 +236,25 @@ async def _run_migrate(
         else:
             typer.echo("Media rsync skipped (--skip-rsync).")
 
+        # Reconciliation report
+        async with session_factory() as rec_session:
+            report: ReconcileReport = await reconcile(
+                session=rec_session,
+                media_root=Path(settings.media_root),
+                expected_tweet_ids=set(result.tweet_ids),
+            )
+
+        typer.echo("=== Reconciliation Report ===")
+        typer.echo(f"DB tweet count:            {report.db_count}")
+        typer.echo(f"Expected (from JSON):      {len(result.tweet_ids)}")
+        typer.echo(f"Distinct referenced thumbs:{report.distinct_referenced_thumbnails}")
+        typer.echo(f"On-disk avatars:           {report.media_on_disk['avatars']}")
+        typer.echo(f"On-disk tweet images:      {report.media_on_disk['tweets']}")
+        typer.echo(f"On-disk videos:            {report.media_on_disk['videos']}")
+        if report.diverged:
+            typer.echo("Status: DIVERGED — DB count does not match JSON source. Re-run migrate.")
+            return 1
+        typer.echo("Status: OK")
         return 0
     except Exception as exc:
         logger.exception("Migration failed: %s", exc)
