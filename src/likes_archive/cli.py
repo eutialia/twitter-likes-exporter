@@ -272,10 +272,20 @@ async def _run_migrate(
         await engine.dispose()
 
 
-# Placeholder stubs for later milestones — DO NOT IMPLEMENT YET
-# @app.command()
-# def serve() -> None:  # Milestone 5
-#     ...
+@app.command()
+def serve() -> None:
+    """Start the web UI server (FastAPI + uvicorn) on settings.host:settings.port."""
+    import uvicorn
+
+    from likes_archive.web.app import create_app  # noqa: PLC0415
+
+    settings = get_settings()
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level,
+    )
 
 
 if __name__ == "__main__":
