@@ -12,6 +12,7 @@ from starlette.requests import Request
 from likes_archive.db.engine import DbSession
 from likes_archive.db.repository import TweetRepository, is_token_expired, latest_scrape_run
 from likes_archive.rendering import dedupe_parent_media
+from likes_archive.web.topbar import cached_years
 from likes_archive.web.viewmodel import add_local_time
 
 router = APIRouter()
@@ -30,9 +31,9 @@ def _cursor_from_tweet(tweet: dict) -> tuple[str, str]:
 async def index(
     request: Request,
     session: DbSession,
-    author: str | None = None,
     before_created_at: str | None = None,
     before_tweet_id: str | None = None,
+    year: int | None = None,
 ) -> HTMLResponse:
     templates = request.app.state.templates
     settings = request.app.state.settings
@@ -49,7 +50,7 @@ async def index(
         limit=settings.tweets_per_page,
         before_created_at=before_dt,
         before_tweet_id=before_tweet_id or None,
-        author=author or None,
+        year=year,
     )
 
     for i, tweet in enumerate(tweets):
@@ -64,8 +65,8 @@ async def index(
         iso, tid = _cursor_from_tweet(last)
         next_cursor = (iso, tid)
         params: dict[str, str] = {"before_created_at": iso, "before_tweet_id": tid}
-        if author:
-            params["author"] = author
+        if year is not None:
+            params["year"] = str(year)
         next_page_url = "/?" + urlencode(params)
         next_before_created_at = iso
 
@@ -77,12 +78,13 @@ async def index(
 
     ctx = {
         "tweets": tweets,
-        "author": author,
         "q": None,
         "next_cursor": next_cursor,
         "next_page_url": next_page_url,
         "before_created_at": next_before_created_at,
         "token_expired": token_expired,
+        "years": await cached_years(request.app.state, repo),
+        "selected_year": year,
     }
 
     template = "fragments/tweet_grid.html" if is_fragment else "index.html"

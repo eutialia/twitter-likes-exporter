@@ -60,7 +60,9 @@ def _base_tweet(**overrides) -> dict:
         "user_handle": "alice",
         "user_avatar_url": "https://pbs.twimg.com/profile_images/u1/photo.jpg",
         "tweet_created_at": "Mon Jan 01 12:00:00 +0000 2024",
-        "created_at_local": "Mon Jan 01 12:00:00 2024",
+        "created_at_local": "Jan 01, 2024, 12:00",
+        "created_at_abs": "Jan 01, 2024, 12:00",
+        "created_at_iso": "2024-01-01T12:00:00+00:00",
         "rendered_content": "Hello world",
         "tweet_media": [],
         "quoted_tweet": None,
@@ -187,6 +189,15 @@ def test_photo_width_height_absent_when_none() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_photo_renders_lightbox_image_trigger() -> None:
+    # Photos open a center-screen viewer — no new-tab/download anchor anymore.
+    items = [_photo_item()]
+    html = _render_media_collage(items)
+    assert 'data-lb-type="image"' in html
+    assert 'target="_blank"' not in html
+    assert "<img" in html
+
+
 def test_animated_gif_renders_autoplay_video() -> None:
     items = [_gif_item()]
     html = _render_media_collage(items)
@@ -195,13 +206,18 @@ def test_animated_gif_renders_autoplay_video() -> None:
     assert "loop" in html
     assert "muted" in html
     assert "playsinline" in html
+    assert 'data-lb-type="gif"' in html
 
 
-def test_video_with_url_renders_controls_video() -> None:
+def test_video_renders_lightbox_poster_not_inline_video() -> None:
+    # Regular videos load only in the lightbox: inline we show a poster + play
+    # badge, with the video asset wired up as the trigger's source.
     items = [_video_item()]
     html = _render_media_collage(items)
-    assert "<video" in html
-    assert "controls" in html
+    assert 'data-lb-type="video"' in html
+    assert "media_play" in html
+    assert 'data-lb-src="/media/' in html
+    assert "<video" not in html
 
 
 def test_video_missing_url_falls_back_to_img() -> None:

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Search</h1>
-{% if not q %}
-<p>Enter a query above to search your liked tweets.</p>
-{% elif not tweets %}
-<p>No results found for <strong>{{ q }}</strong>.</p>
+{% if not tweets %}
+<div class="empty">
+  <p class="empty_title">Nothing matched &ldquo;{{ q }}&rdquo;</p>
+  <p class="empty_hint">Try fewer or different words.</p>
+</div>
 {% else %}
 <div class="tweet_list">
   {% include "fragments/tweet_grid.html" %}

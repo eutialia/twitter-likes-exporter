@@ -89,18 +89,19 @@ class TweetRepository:
         limit: int,
         before_created_at: datetime | None = None,
         before_tweet_id: str | None = None,
-        author: str | None = None,
+        year: int | None = None,
     ) -> list[dict[str, Any]]:
         """Keyset-paginated browse, reverse-chronological by created_at.
 
         Paging uses a stable composite ``(created_at, tweet_id)`` keyset so it is
         correct across the 2018 snowflake 18->19 digit boundary, where a TEXT
-        ordering on ``tweet_id`` would mis-sort (see regression test).
+        ordering on ``tweet_id`` would mis-sort (see regression test). An optional
+        ``year`` restricts results to tweets created in that calendar year (UTC).
         """
         sql = text("""
             SELECT payload
             FROM tweets
-            WHERE (CAST(:author AS text) IS NULL OR user_handle = :author)
+            WHERE (CAST(:year AS int) IS NULL OR EXTRACT(YEAR FROM created_at) = :year)
               AND (
                     CAST(:before_created_at AS timestamptz) IS NULL
                  OR (created_at, tweet_id)
@@ -114,46 +115,36 @@ class TweetRepository:
             {
                 "before_created_at": before_created_at,
                 "before_tweet_id": before_tweet_id,
-                "author": author,
+                "year": year,
                 "limit": limit,
             },
         )
         return [_row_payload(r.payload) for r in rows.fetchall()]
 
-    async def search(
-        self, query: str, *, limit: int, author: str | None = None
-    ) -> list[dict[str, Any]]:
+    async def list_years(self) -> list[int]:
+        """Distinct calendar years (UTC) present in the archive, newest first."""
+        rows = await self._session.execute(
+            text("""
+                SELECT DISTINCT EXTRACT(YEAR FROM created_at)::int AS yr
+                FROM tweets
+                ORDER BY yr DESC
+            """)
+        )
+        return [int(r.yr) for r in rows.fetchall()]
+
+    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         """FTS (stemmed) + pg_trgm fuzzy search over the parent tweet's content."""
         sql = text("""
             SELECT payload,
                    ts_rank(content_tsv, plainto_tsquery('english', :q)) AS rank
             FROM tweets
-            WHERE (CAST(:author AS text) IS NULL OR user_handle = :author)
-              AND (
-                    content_tsv @@ plainto_tsquery('english', :q)
-                 OR similarity(payload->>'tweet_content', :q) > 0.15
-                )
+            WHERE content_tsv @@ plainto_tsquery('english', :q)
+               OR similarity(payload->>'tweet_content', :q) > 0.15
             ORDER BY rank DESC, tweet_id DESC
             LIMIT :limit
         """)
-        rows = await self._session.execute(sql, {"q": query, "author": author, "limit": limit})
+        rows = await self._session.execute(sql, {"q": query, "limit": limit})
         return [_row_payload(r.payload) for r in rows.fetchall()]
-
-    async def list_authors(self) -> list[dict[str, str]]:
-        """One entry per distinct user_handle (handle, name, avatar_url), sorted by handle."""
-        sql = text("""
-            SELECT DISTINCT ON (user_handle)
-                   user_handle                  AS handle,
-                   user_name                    AS name,
-                   payload->>'user_avatar_url'  AS avatar_url
-            FROM tweets
-            ORDER BY user_handle ASC, created_at DESC
-        """)
-        rows = await self._session.execute(sql)
-        return [
-            {"handle": r.handle, "name": r.name, "avatar_url": r.avatar_url or ""}
-            for r in rows.fetchall()
-        ]
 
 
 async def record_scrape_run(

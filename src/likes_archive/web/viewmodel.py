@@ -6,6 +6,8 @@ display-ready fields to tweet dicts without mutating the originals.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from likes_archive.media.keys import media_key_for
 
 
@@ -33,23 +35,59 @@ def media_item_url(item: dict, base_url: str) -> str:
     return thumb_url(item, base_url)
 
 
+_ABS_FMT = "%b %d, %Y, %H:%M"  # e.g. "Jan 01, 2024, 22:22"
+_RELATIVE_CUTOFF_DAYS = 30
+
+
+def _plural(n: int, unit: str) -> str:
+    return f"{n} {unit}{'' if n == 1 else 's'} ago"
+
+
+def _humanize(dt: datetime, now: datetime) -> str:
+    """Relative time within ~a month ('3 hours ago'), absolute date beyond it."""
+    seconds = (now - dt).total_seconds()
+    if seconds < 45:
+        return "just now"
+    minutes = seconds / 60
+    if minutes < 60:
+        return _plural(max(1, round(minutes)), "minute")
+    hours = minutes / 60
+    if hours < 24:
+        return _plural(max(1, round(hours)), "hour")
+    days = hours / 24
+    if days < 7:
+        return _plural(max(1, round(days)), "day")
+    if days < _RELATIVE_CUTOFF_DAYS:
+        return _plural(max(1, round(days / 7)), "week")
+    return dt.strftime(_ABS_FMT)
+
+
 def add_local_time(tweet: dict) -> dict:
-    """Return the tweet dict with a ``created_at_local`` field added.
+    """Return the tweet dict with display-time fields added.
 
-    Parses ``tweet_created_at`` with the Twitter date format and converts it
-    to the server's local timezone. Falls back to the raw string on parse
-    failure (so the web UI always has *something* to display).
+    Parses ``tweet_created_at`` (Twitter format) into the server's local zone and
+    adds:
+      - ``created_at_local`` — relative time if within ~a month, else absolute
+      - ``created_at_abs``   — full absolute time (tooltip), e.g. "Jan 01, 2024, 22:22"
+      - ``created_at_iso``   — ISO 8601 (the ``<time datetime>`` value)
 
-    The input dict is not mutated; a shallow copy is returned.
+    Falls back to the raw string on parse failure. The input dict is not mutated.
     """
-    from datetime import datetime
-
     from tzlocal import get_localzone
 
     raw: str = tweet.get("tweet_created_at", "")
     try:
-        dt = datetime.strptime(raw, "%a %b %d %H:%M:%S %z %Y").astimezone(get_localzone())
-        local_str = dt.strftime("%a %b %d %H:%M:%S %Y")
+        tz = get_localzone()
+        dt = datetime.strptime(raw, "%a %b %d %H:%M:%S %z %Y").astimezone(tz)
+        display = _humanize(dt, datetime.now(tz))
+        absolute = dt.strftime(_ABS_FMT)
+        iso = dt.isoformat()
     except (ValueError, OSError):
-        local_str = raw
-    return {**tweet, "created_at_local": local_str}
+        display = absolute = raw
+        iso = ""
+    return {
+        **tweet,
+        "created_at_local": display,
+        "created_at_abs": absolute,
+        "created_at_iso": iso,
+    }

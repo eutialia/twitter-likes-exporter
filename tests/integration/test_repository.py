@@ -393,32 +393,32 @@ async def test_search_excludes_quoted_tweet_content(db_session):
     assert "S006" not in ids
 
 
-# --- list_authors ---------------------------------------------------------
+# --- list_years / year filter ---------------------------------------------
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_list_authors_returns_distinct_handles(db_session):
+async def test_list_years_distinct_desc(db_session):
     repo = TweetRepository(db_session)
-    await repo.upsert(_make_tweet(tweet_id="A001", user_handle="zebra", user_name="Zebra"))
-    await repo.upsert(_make_tweet(tweet_id="A002", user_handle="aardvark", user_name="Aardvark"))
-    await repo.upsert(_make_tweet(tweet_id="A003", user_handle="zebra", user_name="Zebra"))
-    handles = [a["handle"] for a in await repo.list_authors()]
-    assert "aardvark" in handles
-    assert "zebra" in handles
-    assert len([h for h in handles if h == "zebra"]) == 1
-    assert handles == sorted(handles)
+    await repo.upsert(_make_tweet(tweet_id="Y1", tweet_created_at="Mon Jan 06 10:00:00 +0000 2025"))
+    await repo.upsert(_make_tweet(tweet_id="Y2", tweet_created_at="Wed Nov 01 12:00:00 +0000 2023"))
+    await repo.upsert(_make_tweet(tweet_id="Y3", tweet_created_at="Thu Jun 01 12:00:00 +0000 2017"))
+    await repo.upsert(_make_tweet(tweet_id="Y4", tweet_created_at="Sun Jan 05 08:00:00 +0000 2025"))
+    years = await repo.list_years()
+    assert years == [2025, 2023, 2017]  # distinct, newest first
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_list_authors_includes_name_and_avatar(db_session):
+async def test_list_page_year_filter(db_session):
     repo = TweetRepository(db_session)
     await repo.upsert(
-        _make_tweet(tweet_id="A004", user_handle="sampleauthor", user_name="Sample Author")
+        _make_tweet(tweet_id="YF1", tweet_created_at="Mon Jan 06 10:00:00 +0000 2025")
     )
-    found = next((a for a in await repo.list_authors() if a["handle"] == "sampleauthor"), None)
-    assert found is not None
-    assert found["name"] == "Sample Author"
-    assert "avatar_url" in found
+    await repo.upsert(
+        _make_tweet(tweet_id="YF2", tweet_created_at="Wed Nov 01 12:00:00 +0000 2021")
+    )
+    ids = [t["tweet_id"] for t in await repo.list_page(limit=50, year=2025)]
+    assert "YF1" in ids
+    assert "YF2" not in ids
 
 
 # --- bulk_upsert ----------------------------------------------------------

@@ -58,8 +58,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/media", StaticFiles(directory=str(media_root)), name="media")
     app.state.templates = _make_templates(cfg)
     app.state.settings = cfg
-    from likes_archive.web.routes import authors, index, internal, search, tweet  # noqa: PLC0415
+    from likes_archive.web.routes import index, internal, search, tweet  # noqa: PLC0415
 
-    for r in (index, search, tweet, authors, internal):
+    for r in (index, search, tweet, internal):
         app.include_router(r.router)
     return app

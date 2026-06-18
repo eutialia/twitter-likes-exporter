@@ -37,12 +37,6 @@ _CANNED_TWEET = {
     "tweet_urls": [],
 }
 
-_CANNED_AUTHOR = {
-    "handle": "testhandle",
-    "name": "Test User",
-    "avatar_url": "https://pbs.twimg.com/profile_images/1/photo.jpg",
-}
-
 _XSS_TWEET = {
     **_CANNED_TWEET,
     "tweet_id": "9999999999",
@@ -97,6 +91,7 @@ class TestIndexRoute:
         ):
             instance = MagicMock()
             instance.list_page = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/")
@@ -114,6 +109,7 @@ class TestIndexRoute:
         ):
             instance = MagicMock()
             instance.list_page = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/", headers={"HX-Request": "true"})
@@ -130,6 +126,7 @@ class TestIndexRoute:
         ):
             instance = MagicMock()
             instance.list_page = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get(
@@ -152,27 +149,12 @@ class TestIndexRoute:
         ):
             instance = MagicMock()
             instance.list_page = AsyncMock(return_value=[])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/")
         assert resp.status_code == 200
         assert "<html" in resp.text
-
-    def test_index_author_filter_passed_to_repo(self, tmp_path):
-        with (
-            patch("likes_archive.web.routes.index.TweetRepository") as MockRepo,
-            patch(
-                "likes_archive.web.routes.index.latest_scrape_run",
-                new=AsyncMock(return_value=None),
-            ),
-        ):
-            instance = MagicMock()
-            instance.list_page = AsyncMock(return_value=[])
-            MockRepo.return_value = instance
-            client = _make_client(str(tmp_path))
-            client.get("/?author=testhandle")
-            call_kwargs = instance.list_page.call_args.kwargs
-        assert call_kwargs["author"] == "testhandle"
 
     def test_index_xss_user_name_is_escaped(self, tmp_path):
         with (
@@ -184,12 +166,12 @@ class TestIndexRoute:
         ):
             instance = MagicMock()
             instance.list_page = AsyncMock(return_value=[_XSS_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/")
-        # The raw <script> payload must not appear unescaped in user_name context.
-        # (base.html has a legitimate <script> tag for author-select JS — we check
-        # the XSS payload's alert() is absent and the escaped form is present.)
+        # The raw <script> payload must not appear unescaped in user_name context:
+        # the alert() call must be absent and the escaped form present.
         assert 'alert("xss")' not in resp.text
         assert "&lt;script&gt;" in resp.text
 
@@ -204,10 +186,46 @@ class TestIndexRoute:
             instance = MagicMock()
             # Only 1 tweet, limit is 50 — no sentinel
             instance.list_page = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/")
         assert "hx-get" not in resp.text or "before_created_at" not in resp.text
+
+    def test_index_year_filter_passed_to_repo(self, tmp_path):
+        with (
+            patch("likes_archive.web.routes.index.TweetRepository") as MockRepo,
+            patch(
+                "likes_archive.web.routes.index.latest_scrape_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            instance = MagicMock()
+            instance.list_page = AsyncMock(return_value=[])
+            instance.list_years = AsyncMock(return_value=[2024, 2023])
+            MockRepo.return_value = instance
+            client = _make_client(str(tmp_path))
+            client.get("/?year=2023")
+            call_kwargs = instance.list_page.call_args.kwargs
+        assert call_kwargs["year"] == 2023
+
+    def test_index_renders_year_dropdown(self, tmp_path):
+        with (
+            patch("likes_archive.web.routes.index.TweetRepository") as MockRepo,
+            patch(
+                "likes_archive.web.routes.index.latest_scrape_run",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            instance = MagicMock()
+            instance.list_page = AsyncMock(return_value=[])
+            instance.list_years = AsyncMock(return_value=[2024, 2023])
+            MockRepo.return_value = instance
+            client = _make_client(str(tmp_path))
+            resp = client.get("/")
+        assert 'class="year_select"' in resp.text
+        assert ">2024<" in resp.text
+        assert ">2023<" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -216,22 +234,17 @@ class TestIndexRoute:
 
 
 class TestSearchRoute:
-    def test_search_landing_returns_200(self, tmp_path):
-        with patch("likes_archive.web.routes.search.TweetRepository") as MockRepo:
-            instance = MagicMock()
-            instance.search = AsyncMock(return_value=[])
-            MockRepo.return_value = instance
-            client = _make_client(str(tmp_path))
-            resp = client.get("/search")
-        assert resp.status_code == 200
-        assert "<html" in resp.text
-        # No query — no search call
-        instance.search.assert_not_awaited()
+    def test_search_empty_query_redirects_home(self, tmp_path):
+        client = _make_client(str(tmp_path))
+        resp = client.get("/search", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
 
     def test_search_with_query_returns_results(self, tmp_path):
         with patch("likes_archive.web.routes.search.TweetRepository") as MockRepo:
             instance = MagicMock()
             instance.search = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/search?q=hello")
@@ -242,6 +255,7 @@ class TestSearchRoute:
         with patch("likes_archive.web.routes.search.TweetRepository") as MockRepo:
             instance = MagicMock()
             instance.search = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/search?q=hello", headers={"HX-Request": "true"})
@@ -253,6 +267,7 @@ class TestSearchRoute:
         with patch("likes_archive.web.routes.search.TweetRepository") as MockRepo:
             instance = MagicMock()
             instance.search = AsyncMock(return_value=[_CANNED_TWEET])
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/search?q=hello")
@@ -261,15 +276,11 @@ class TestSearchRoute:
         # search explicitly sets both to None.
         assert resp.status_code == 200
 
-    def test_search_whitespace_query_skips_repo(self, tmp_path):
-        with patch("likes_archive.web.routes.search.TweetRepository") as MockRepo:
-            instance = MagicMock()
-            instance.search = AsyncMock(return_value=[])
-            MockRepo.return_value = instance
-            client = _make_client(str(tmp_path))
-            resp = client.get("/search?q=   ")
-        assert resp.status_code == 200
-        instance.search.assert_not_awaited()
+    def test_search_whitespace_query_redirects_home(self, tmp_path):
+        client = _make_client(str(tmp_path))
+        resp = client.get("/search?q=   ", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +293,7 @@ class TestTweetDetailRoute:
         with patch("likes_archive.web.routes.tweet.TweetRepository") as MockRepo:
             instance = MagicMock()
             instance.get = AsyncMock(return_value=None)
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/tweet/does-not-exist")
@@ -291,43 +303,13 @@ class TestTweetDetailRoute:
         with patch("likes_archive.web.routes.tweet.TweetRepository") as MockRepo:
             instance = MagicMock()
             instance.get = AsyncMock(return_value=_CANNED_TWEET)
+            instance.list_years = AsyncMock(return_value=[2024])
             MockRepo.return_value = instance
             client = _make_client(str(tmp_path))
             resp = client.get("/tweet/1234567890")
         assert resp.status_code == 200
         assert "testhandle" in resp.text
         assert "<html" in resp.text
-
-
-# ---------------------------------------------------------------------------
-# Authors fragment — GET /api/authors
-# ---------------------------------------------------------------------------
-
-
-class TestAuthorsRoute:
-    def test_authors_returns_options(self, tmp_path):
-        with patch("likes_archive.web.routes.authors.TweetRepository") as MockRepo:
-            instance = MagicMock()
-            instance.list_authors = AsyncMock(return_value=[_CANNED_AUTHOR])
-            MockRepo.return_value = instance
-            client = _make_client(str(tmp_path))
-            resp = client.get("/api/authors")
-        assert resp.status_code == 200
-        assert "testhandle" in resp.text
-        assert "Test User" in resp.text
-        assert "<option" in resp.text
-
-    def test_authors_cache_is_used_on_second_call(self, tmp_path):
-        """Second call should use cache and not call list_authors again."""
-        with patch("likes_archive.web.routes.authors.TweetRepository") as MockRepo:
-            instance = MagicMock()
-            instance.list_authors = AsyncMock(return_value=[_CANNED_AUTHOR])
-            MockRepo.return_value = instance
-            client = _make_client(str(tmp_path))
-            client.get("/api/authors")
-            client.get("/api/authors")
-        # list_authors called only once (second call hits cache)
-        assert instance.list_authors.await_count == 1
 
 
 # ---------------------------------------------------------------------------

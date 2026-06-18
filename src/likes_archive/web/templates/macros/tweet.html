@@ -3,22 +3,31 @@
 {% set murl = media_item_url(item) %}
 <div class="tweet_image">
   {% if item.type == "photo" or not item.video_url %}
-    <a href="{{ thumb }}" target="_blank">
+    <button type="button" class="media_btn media_btn--zoom"
+            data-lb-type="image" data-lb-src="{{ thumb }}" aria-label="View image">
       <img loading="lazy" decoding="async"
            {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
            {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-           src="{{ thumb }}">
-    </a>
+           src="{{ thumb }}" alt="">
+    </button>
   {% elif item.type == "animated_gif" %}
-    <video autoplay loop muted playsinline preload="none"
-           {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
-           {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-           poster="{{ thumb }}" src="{{ murl }}"></video>
+    <button type="button" class="media_btn media_btn--gif"
+            data-lb-type="gif" data-lb-src="{{ murl }}" aria-label="Open GIF">
+      <video autoplay loop muted playsinline preload="none"
+             {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
+             {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
+             poster="{{ thumb }}" src="{{ murl }}"></video>
+      <span class="media_badge" aria-hidden="true">GIF</span>
+    </button>
   {% else %}
-    <video controls preload="none"
+    <button type="button" class="media_btn media_btn--video"
+            data-lb-type="video" data-lb-src="{{ murl }}" aria-label="Play video">
+      <img loading="lazy" decoding="async"
            {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
            {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-           poster="{{ thumb }}" src="{{ murl }}"></video>
+           src="{{ thumb }}" alt="">
+      <span class="media_play" aria-hidden="true"></span>
+    </button>
   {% endif %}
 </div>
 {% endmacro %}
@@ -41,7 +50,7 @@
 <div class="quoted_tweet">
   <div class="quoted_tweet_header">
     <div class="quoted_avatar">
-      <img loading="lazy" decoding="async" width="24" height="24" src="{{ avatar_url(qt) }}">
+      <img loading="lazy" decoding="async" width="24" height="24" src="{{ avatar_url(qt) }}" alt="">
     </div>
     <span class="quoted_name">{{ qt.user_name }}</span>
     <span class="quoted_handle">@{{ qt.user_handle }}</span>
@@ -54,20 +63,18 @@
 {% endmacro %}
 
 {% macro tweet_card(tweet) %}
-<div class="tweet_wrapper">
-  <div class="tweet_author_wrapper">
-    <div class="tweet_author_image">
-      <img loading="lazy" decoding="async" width="48" height="48" src="{{ avatar_url(tweet) }}">
-    </div>
+<article class="tweet_wrapper">
+  <header class="tweet_author_wrapper">
+    <a class="tweet_author_image" href="https://www.twitter.com/{{ tweet.user_handle }}/"
+       target="_blank" rel="noopener" aria-label="@{{ tweet.user_handle }} on X">
+      <img loading="lazy" decoding="async" width="44" height="44" src="{{ avatar_url(tweet) }}" alt="">
+    </a>
     <div class="author_context">
-      <div class="tweet_author_name">{{ tweet.user_name }}</div>
-      <div class="tweet_author_handle">
-        <a href="https://www.twitter.com/{{ tweet.user_handle }}/" target="_blank">
-          @{{ tweet.user_handle }}
-        </a>
-      </div>
+      <a class="tweet_author_name" href="https://www.twitter.com/{{ tweet.user_handle }}/"
+         target="_blank" rel="noopener">{{ tweet.user_name }}</a>
+      <div class="tweet_author_handle">@{{ tweet.user_handle }}</div>
     </div>
-  </div>
+  </header>
   <div class="tweet_content">{{ tweet.rendered_content | safe }}</div>
   {% if tweet.quoted_tweet %}
     {{ quoted_tweet(tweet.quoted_tweet) }}
@@ -75,11 +82,14 @@
   {% if tweet.tweet_media %}
     {{ media_collage(tweet.tweet_media) }}
   {% endif %}
-  <div class="tweet_created_at">{{ tweet.created_at_local }}</div>
-  <div class="twitter_link">
-    <a href="https://www.twitter.com/{{ tweet.user_handle }}/status/{{ tweet.tweet_id }}/"
-       target="_blank">Original tweet &#8599;</a> &#8226;
-    <a href="/tweet/{{ tweet.tweet_id }}">Local version</a>
-  </div>
-</div>
+  <footer class="tweet_footer">
+    <time class="tweet_created_at" datetime="{{ tweet.created_at_iso }}"
+          title="{{ tweet.created_at_abs }}">{{ tweet.created_at_local }}</time>
+    <span class="tweet_links">
+      <a href="https://www.twitter.com/{{ tweet.user_handle }}/status/{{ tweet.tweet_id }}/"
+         target="_blank" rel="noopener">Original&#8201;&#8599;</a>
+      <a href="/tweet/{{ tweet.tweet_id }}">Permalink</a>
+    </span>
+  </footer>
+</article>
 {% endmacro %}

@@ -242,12 +242,28 @@ async def test_search_no_match(web_client: httpx.AsyncClient) -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio(loop_scope="session")
-async def test_search_landing_no_query(web_client: httpx.AsyncClient) -> None:
-    """GET /search with no q returns 200 (search landing page, no results)."""
-    resp = await web_client.get("/search")
-    assert resp.status_code == 200
-    # No tweet cards for an empty query
-    assert "snorkeling" not in resp.text.lower()
+async def test_search_empty_query_redirects_home(web_client: httpx.AsyncClient) -> None:
+    """GET /search with no q is a no-op: redirect home instead of an empty page."""
+    resp = await web_client.get("/search", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_index_year_dropdown_and_filter(web_client: httpx.AsyncClient) -> None:
+    """The year dropdown lists the seeded year and ?year= filters the feed."""
+    resp = await web_client.get("/")
+    assert 'class="year_select"' in resp.text
+    assert ">2025<" in resp.text  # all seeded tweets are from 2025
+
+    match = await web_client.get("/?year=2025")
+    assert match.status_code == 200
+    assert "diver_jane" in match.text
+
+    miss = await web_client.get("/?year=1999")
+    assert miss.status_code == 200
+    assert "diver_jane" not in miss.text
 
 
 @pytest.mark.integration
@@ -265,17 +281,6 @@ async def test_tweet_detail_404(web_client: httpx.AsyncClient) -> None:
     """GET /tweet/<nonexistent> returns 404."""
     resp = await web_client.get("/tweet/does-not-exist")
     assert resp.status_code == 404
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio(loop_scope="session")
-async def test_authors_endpoint(web_client: httpx.AsyncClient) -> None:
-    """GET /api/authors returns 200 and lists the seeded authors."""
-    resp = await web_client.get("/api/authors")
-    assert resp.status_code == 200
-    # Both distinct user_handles should appear
-    assert "diver_jane" in resp.text
-    assert "coding_bob" in resp.text
 
 
 @pytest.mark.integration

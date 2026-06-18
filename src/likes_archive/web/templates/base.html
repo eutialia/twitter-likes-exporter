@@ -1,38 +1,55 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1.0, maximum-scale=1.0">
-  <title>Liked Tweets Archive</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <title>Likes Archive</title>
   <link rel="stylesheet" href="/static/styles.css">
   <!-- HTMX 2.0.4 vendored -->
   <script src="/static/htmx.min.js"></script>
 </head>
 <body>
-  {% include "fragments/token_banner.html" %}
-  <header>
-    <form method="get" action="/search">
-      <input type="text" name="q" placeholder="Search tweets..."
-             value="{{ q | default('', true) }}">
-      <button type="submit">Search</button>
-    </form>
-    <select id="author-select"
-            hx-get="/api/authors"
-            hx-trigger="load"
-            hx-swap="innerHTML">
-      <option value="">All authors</option>
-    </select>
-    <script>
-      document.getElementById('author-select').addEventListener('change', function () {
-        var val = this.value;
-        var url = '/';
-        if (val) { url += '?author=' + encodeURIComponent(val); }
-        window.location.href = url;
-      });
-    </script>
+  <header class="topbar">
+    <div class="topbar_inner">
+      <a class="brand" href="/" aria-label="TLG home">TLG</a>
+      <form class="search" method="get" action="/search" role="search">
+        <svg class="search_icon" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input class="search_input" type="search" name="q" enterkeyhint="search"
+               placeholder="Search tweets&hellip;" aria-label="Search tweets"
+               value="{{ q | default('', true) }}">
+      </form>
+      <select class="year_select" aria-label="Filter by year"
+              onchange="location.href = this.value ? '/?year=' + encodeURIComponent(this.value) : '/'">
+        <option value="">All years</option>
+        {% for y in years | default([]) %}
+        <option value="{{ y }}"{% if y == selected_year %} selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </header>
-  <main>
+
+  <main class="container">
+    {% include "fragments/token_banner.html" %}
     {% block content %}{% endblock %}
   </main>
+
+  <dialog id="lightbox" class="lightbox" aria-label="Media viewer">
+    <button type="button" class="lightbox_close" aria-label="Close viewer">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+      </svg>
+    </button>
+    <div class="lightbox_stage"></div>
+  </dialog>
+  <script src="/static/lightbox.js" defer></script>
 </body>
 </html>

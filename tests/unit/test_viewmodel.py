@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from likes_archive.web.viewmodel import add_local_time, avatar_url, media_item_url, thumb_url
+from datetime import UTC, datetime, timedelta
+
+from likes_archive.web.viewmodel import (
+    _humanize,
+    add_local_time,
+    avatar_url,
+    media_item_url,
+    thumb_url,
+)
 
 BASE = "http://localhost:8000/media"
 
@@ -78,7 +86,47 @@ def test_add_local_time_adds_created_at_local() -> None:
     assert result["created_at_local"] != ""
 
 
+def test_add_local_time_adds_abs_and_iso_fields() -> None:
+    result = add_local_time(_TWEET)
+    # Old fixed date -> absolute display, full abs string, and an ISO datetime.
+    assert result["created_at_local"] == result["created_at_abs"]
+    assert result["created_at_abs"].startswith("Jan 01, 2024,")
+    assert result["created_at_iso"].startswith("2024-01-01T")
+
+
 def test_add_local_time_falls_back_on_bad_date() -> None:
     tweet = {**_TWEET, "tweet_created_at": "not a valid date"}
     result = add_local_time(tweet)
     assert result["created_at_local"] == "not a valid date"
+    assert result["created_at_abs"] == "not a valid date"
+    assert result["created_at_iso"] == ""
+
+
+# ---------------------------------------------------------------------------
+# _humanize — relative within a month, absolute beyond
+# ---------------------------------------------------------------------------
+
+
+_NOW = datetime(2026, 6, 17, 12, 0, tzinfo=UTC)
+
+
+def test_humanize_just_now() -> None:
+    assert _humanize(_NOW - timedelta(seconds=5), _NOW) == "just now"
+
+
+def test_humanize_minutes_and_hours() -> None:
+    assert _humanize(_NOW - timedelta(minutes=5), _NOW) == "5 minutes ago"
+    assert _humanize(_NOW - timedelta(hours=1), _NOW) == "1 hour ago"
+    assert _humanize(_NOW - timedelta(hours=3), _NOW) == "3 hours ago"
+
+
+def test_humanize_days_and_weeks() -> None:
+    assert _humanize(_NOW - timedelta(days=1), _NOW) == "1 day ago"
+    assert _humanize(_NOW - timedelta(days=3), _NOW) == "3 days ago"
+    assert _humanize(_NOW - timedelta(days=14), _NOW) == "2 weeks ago"
+
+
+def test_humanize_beyond_a_month_is_absolute() -> None:
+    # 2+ years old -> absolute, formatted "Jan 01, 2024, 22:22" (in the dt's zone).
+    dt = datetime(2024, 1, 1, 22, 22, tzinfo=UTC)
+    assert _humanize(dt, _NOW) == "Jan 01, 2024, 22:22"

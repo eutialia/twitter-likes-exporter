@@ -9,6 +9,7 @@ from starlette.requests import Request
 from likes_archive.db.engine import DbSession
 from likes_archive.db.repository import TweetRepository
 from likes_archive.rendering import dedupe_parent_media
+from likes_archive.web.topbar import cached_years
 from likes_archive.web.viewmodel import add_local_time
 
 router = APIRouter()
@@ -26,4 +27,9 @@ async def tweet_detail(
     if t is None:
         raise HTTPException(status_code=404)
     t = add_local_time({**t, "tweet_media": dedupe_parent_media(t)})
-    return templates.TemplateResponse(request, "tweet.html", {"tweet": t})
+    ctx = {
+        "tweet": t,
+        "years": await cached_years(request.app.state, repo),
+        "selected_year": None,
+    }
+    return templates.TemplateResponse(request, "tweet.html", ctx)
