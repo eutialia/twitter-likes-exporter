@@ -468,8 +468,13 @@ img, video { max-width: 100%; }
   padding: clamp(12px, 3vw, 40px);
 }
 .lightbox_media {
-  max-width: 100%;
-  max-height: 100%;
+  /* Size against the viewport, not the parent: a percentage max-height does not
+     resolve inside the auto-height grid cell, so a portrait image would overflow
+     the bottom (worse on wider screens). vh/vw always resolve; dvh handles the
+     mobile address bar. */
+  max-width: 94vw;
+  max-height: 90vh;
+  max-height: 90dvh;
   width: auto;
   height: auto;
   object-fit: contain;
