@@ -8,8 +8,8 @@ Requires=likes-scraper.service
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=1h
-RandomizedDelaySec=5min
+OnUnitActiveSec=2d
+RandomizedDelaySec=6h
 Unit=likes-scraper.service
 
 [Install]
