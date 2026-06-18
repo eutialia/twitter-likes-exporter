@@ -135,3 +135,8 @@ tweet_likes_html/tweets
 tweet_likes_html/index.html
 tweet_likes_html/page-*.html
 config.json
+deploy/env/secrets.env
+deploy/env/config.env
+
+# Local design docs / plans (keep private)
+docs/
