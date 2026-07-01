@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from likes_archive.config import Settings, get_settings
 from likes_archive.db.engine import init_engine
+from likes_archive.web.media_files import MediaFiles
 from likes_archive.web.viewmodel import avatar_url, media_item_url, thumb_url
 
 _WEB_PKG = files("likes_archive.web")
@@ -55,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
     media_root = Path(cfg.media_root)
     media_root.mkdir(parents=True, exist_ok=True)
-    app.mount("/media", StaticFiles(directory=str(media_root)), name="media")
+    app.mount("/media", MediaFiles(directory=str(media_root)), name="media")
     app.state.templates = _make_templates(cfg)
     app.state.settings = cfg
     from likes_archive.web.routes import index, internal, search, tweet  # noqa: PLC0415
