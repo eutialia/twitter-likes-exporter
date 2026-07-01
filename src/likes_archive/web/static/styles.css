@@ -201,10 +201,25 @@ img, video { max-width: 100%; }
 .empty_title { margin: 0 0 0.4rem; font-size: 1.1rem; font-weight: 640; color: var(--ink-2); }
 .empty_hint { margin: 0; font-size: 0.95rem; }
 
-/* Masonry feed — column layout keeps varied-height tweets tightly packed. */
-.tweet_list { column-count: 3; column-gap: 1.1rem; }
-@media (max-width: 1100px) { .tweet_list { column-count: 2; } }
-@media (max-width: 680px) { .tweet_list { column-count: 1; } }
+/* Masonry feed — CSS grid with JS-assigned row spans (masonry.js). Grid, not
+   `column-count`: multi-column re-balances every column when an infinite-scroll
+   batch is appended, shoving every card on screen. Grid tracks stay put, so
+   cards already rendered never move. */
+.tweet_list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 8px;
+  column-gap: 1.1rem;
+  row-gap: 0; /* vertical gap is folded into each card's row span (masonry.js);
+                a real row-gap would be multiplied across every spanned track */
+  align-items: start;
+}
+@media (max-width: 1100px) { .tweet_list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .tweet_list { grid-template-columns: minmax(0, 1fr); } }
+
+/* Infinite-scroll sentinel spans all columns so it always sits below every
+   card — never in a mid-grid gap where its "revealed" trigger would fire early. */
+.feed_sentinel { grid-column: 1 / -1; }
 
 .tweet_single { max-width: 600px; margin: 0 auto; }
 
@@ -225,17 +240,12 @@ img, video { max-width: 100%; }
 /* ---------- Tweet card ---------------------------------------------------- */
 
 .tweet_wrapper {
-  display: inline-block;
   width: 100%;
-  margin: 0 0 1.1rem;
   padding: 1rem 1.1rem 0.85rem;
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1);
-  /* Keep a card from being split across masonry columns. */
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
 }
 
 .tweet_author_wrapper { display: flex; align-items: center; gap: 0.7rem; }

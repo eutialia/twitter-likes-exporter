@@ -2,8 +2,9 @@
 {% for tweet in tweets %}{{ tweet_card(tweet) }}{% endfor %}
 {% if next_cursor and next_page_url %}
 <div
+  class="feed_sentinel"
   hx-get="{{ next_page_url }}"
   hx-trigger="revealed"
-  hx-swap="afterend">
+  hx-swap="outerHTML">
 </div>
 {% endif %}
