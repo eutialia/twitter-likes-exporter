@@ -246,6 +246,15 @@ img, video { max-width: 100%; }
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1);
+  /* Infinite scroll never removes cards, so the DOM grows without bound and
+     scrolling gets heavy. masonry.js turns on `content-visibility: auto` per
+     card *after* measuring it (turning it on here, globally, would make the
+     browser skip far-below-fold cards before masonry.js can measure them, so
+     their span would be computed from this fallback height instead of their
+     real one). `contain-intrinsic-size: auto` is inert until content-visibility
+     is on, then remembers each card's real height so the scrollbar and spans
+     stay put. */
+  contain-intrinsic-size: auto 500px;
 }
 
 .tweet_author_wrapper { display: flex; align-items: center; gap: 0.7rem; }
