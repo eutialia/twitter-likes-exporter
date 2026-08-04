@@ -83,6 +83,8 @@ editor /etc/likes-archive/config.env
 
 ```bash
 cd /opt/likes-archive
+# As the likes user (or root). Settings loads /etc/likes-archive/{secrets,config}.env
+# automatically — same files the systemd units use — so no manual `source` is needed.
 uv run likes-archive db upgrade
 ```
 

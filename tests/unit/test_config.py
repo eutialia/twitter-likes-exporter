@@ -98,3 +98,44 @@ def test_settings_missing_required_field_raises(monkeypatch):
     get_settings.cache_clear()
     with pytest.raises(pydantic.ValidationError):
         get_settings()
+
+
+def test_settings_loads_deploy_env_files(monkeypatch, tmp_path):
+    """Env files alone (no process env) are enough — matches LXC interactive CLI."""
+    for var in [
+        "DATABASE_URL",
+        "MEDIA_ROOT",
+        "X_USER_ID",
+        "X_BEARER_TOKEN",
+        "X_COOKIES",
+        "X_CSRF_TOKEN",
+    ]:
+        monkeypatch.delenv(var, raising=False)
+
+    secrets = tmp_path / "secrets.env"
+    config = tmp_path / "config.env"
+    secrets.write_text(
+        "DATABASE_URL=postgresql+asyncpg://likes:pw@db:5432/likes_archive\n"
+        "X_USER_ID=99\n"
+        "X_BEARER_TOKEN=Bearer FROMFILE\n"
+        "X_COOKIES=auth_token=x\n"
+        "X_CSRF_TOKEN=csrf\n"
+    )
+    config.write_text(f"MEDIA_ROOT={tmp_path / 'media'}\n")
+
+    from likes_archive.config import Settings, get_settings
+
+    get_settings.cache_clear()
+    s = Settings(_env_file=(str(secrets), str(config)))  # ty: ignore[missing-argument]
+    assert s.database_url.endswith("/likes_archive")
+    assert s.x_bearer_token == "Bearer FROMFILE"
+    assert s.media_root == tmp_path / "media"
+    get_settings.cache_clear()
+
+
+def test_env_files_constant_includes_deploy_paths():
+    from likes_archive.config import _ENV_FILES
+
+    assert ".env" in _ENV_FILES
+    assert "/etc/likes-archive/secrets.env" in _ENV_FILES
+    assert "/etc/likes-archive/config.env" in _ENV_FILES

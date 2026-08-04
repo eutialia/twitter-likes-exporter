@@ -5,10 +5,19 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Local `.env` first for dev; then the LXC paths systemd units use so interactive
+# CLI (`db upgrade`, `scrape`, …) works without manually `source`-ing them.
+# Missing files are ignored by pydantic-settings.
+_ENV_FILES = (
+    ".env",
+    "/etc/likes-archive/secrets.env",
+    "/etc/likes-archive/config.env",
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILES,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
