@@ -55,6 +55,11 @@ class TestFromRawEntry:
     def test_missing_tweet_results_returns_none(self) -> None:
         assert TweetParser.from_raw_entry({"content": {"itemContent": {}}}) is None
 
+    def test_visibility_wrapper_is_unwrapped(self) -> None:
+        parser = TweetParser.from_raw_entry(load("tweet_visibility_wrapper.json"))
+        assert parser is not None
+        assert parser.tweet_as_json()["tweet_content"] == "Wrapped in TweetWithVisibilityResults"
+
 
 class TestTweetAsJsonShape:
     REQUIRED_KEYS = {
@@ -162,6 +167,33 @@ class TestVideoTweet:
         link = self.result["tweet_urls"][0]
         assert link["expanded_url"] == "https://example.com/article"
         assert link["display_url"] == "example.com/article"
+
+
+class TestNoteTweet:
+    """Long-form posts: full body lives under note_tweet, not legacy.full_text."""
+
+    def setup_method(self) -> None:
+        parser = TweetParser.from_raw_entry(load("tweet_note_tweet.json"))
+        assert parser is not None
+        self.parser = parser
+        self.result = parser.tweet_as_json()
+
+    def test_prefers_note_tweet_text_over_truncated_full_text(self) -> None:
+        content = self.result["tweet_content"]
+        assert "就像在陪伴小时候的自己一样。" in content
+        assert len(content) > len(
+            "今天带妹子去买自行车了。\n其实这东西和电脑一样，男生看重功能和性价比，女生更在乎外观好不好看。\n"
+            "果不其然，挑来挑去，妹子选了一辆我最不喜欢的车——无论品牌、设计、性能还是性价比，都遥遥落后，唯一的优点恐怕就是漂亮。"
+        )
+
+    def test_does_not_stop_at_truncated_preview(self) -> None:
+        # Truncated legacy ends at 漂亮。; full note continues past that.
+        assert "为了劝她买辆" in self.result["tweet_content"]
+
+    def test_urls_come_from_note_entity_set(self) -> None:
+        urls = {u["url"] for u in self.result["tweet_urls"]}
+        assert "https://t.co/notelink" in urls
+        assert "https://t.co/onlylegacy" not in urls
 
 
 class TestQuotedTweet:

@@ -1,0 +1,62 @@
+{
+  "entryId": "tweet-2075960745448329440",
+  "sortIndex": "2075960745448329440",
+  "content": {
+    "entryType": "TimelineTimelineItem",
+    "itemContent": {
+      "itemType": "TimelineTweet",
+      "tweet_results": {
+        "result": {
+          "legacy": {
+            "id_str": "2075960745448329440",
+            "full_text": "今天带妹子去买自行车了。\n其实这东西和电脑一样，男生看重功能和性价比，女生更在乎外观好不好看。\n果不其然，挑来挑去，妹子选了一辆我最不喜欢的车——无论品牌、设计、性能还是性价比，都遥遥落后，唯一的优点恐怕就是漂亮。",
+            "created_at": "Fri Jul 11 15:09:45 +0000 2026",
+            "user_id_str": "1942422285044047873",
+            "extended_entities": {"media": []},
+            "entities": {
+              "urls": [
+                {
+                  "url": "https://t.co/onlylegacy",
+                  "expanded_url": "https://example.com/legacy-only",
+                  "display_url": "example.com/legacy-only"
+                }
+              ]
+            }
+          },
+          "note_tweet": {
+            "is_expandable": true,
+            "note_tweet_results": {
+              "result": {
+                "id": "Tm90ZVR3ZWV0OjIwNzU5NjA3NDUzOTM4NDgzMjA=",
+                "text": "今天带妹子去买自行车了。\n其实这东西和电脑一样，男生看重功能和性价比，女生更在乎外观好不好看。\n果不其然，挑来挑去，妹子选了一辆我最不喜欢的车——无论品牌、设计、性能还是性价比，都遥遥落后，唯一的优点恐怕就是漂亮。\n为了劝她买辆“正常的车”，我给她看了网上的评分和AI的点评，然而妹子不为所动，非买不可。\n其实，我本想到了制胜的办法——我出的钱，就要听我的。\n但是，话到嘴边咽了回去。\n因为，想到小时候买玩具就是这样——\n父母的标准永远是“值不值”、“耐不耐用”、“他们能不能接受”，因此，我收到的礼物永远不是“我喜欢的”，而是“他们认为我应该喜欢”的。\n也正是这个原因，很多人长大后拿出自己小时候的玩具都会觉得温暖、被治愈，我却在独立后不久，就把小时候他们买给我的东西一个不剩全卖破烂了。\n说实话，从小到大，我没有感谢过那俩人给我买的任何东西。我亲手把那些玩具踩碎了装麻袋，卖破烂，没有任何迟疑、任何遗憾、完全像是在处理和自己没有任何关系的垃圾一样。\n所以，最终，我帮妹子结了帐，买了她最喜欢的那辆自行车，没有说一句废话，而且还全程开心地陪她骑、教她用变速器……\n就像在陪伴小时候的自己一样。",
+                "entity_set": {
+                  "hashtags": [],
+                  "symbols": [],
+                  "urls": [
+                    {
+                      "url": "https://t.co/notelink",
+                      "expanded_url": "https://example.com/in-note",
+                      "display_url": "example.com/in-note"
+                    }
+                  ],
+                  "user_mentions": []
+                }
+              }
+            }
+          },
+          "core": {
+            "user_results": {
+              "result": {
+                "legacy": {
+                  "screen_name": "Hakonootoko",
+                  "name": "流亡公主",
+                  "profile_image_url_https": "https://pbs.twimg.com/profile_images/1942422285044047873/avatar.jpg"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

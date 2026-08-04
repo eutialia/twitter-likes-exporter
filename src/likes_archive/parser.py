@@ -58,6 +58,30 @@ def _unwrap_tweet_result(result):
     return None
 
 
+def _note_tweet_result(key_data):
+    """Return the inner note_tweet_results.result dict, or None.
+
+    Long-form posts (>~280 graphemes, Twitter "Show more") put the full body
+    under note_tweet while legacy.full_text stays truncated.
+    """
+    if not isinstance(key_data, dict):
+        return None
+    note = key_data.get("note_tweet")
+    if not isinstance(note, dict):
+        return None
+    result = (note.get("note_tweet_results") or {}).get("result")
+    return result if isinstance(result, dict) else None
+
+
+def note_tweet_text(key_data):
+    """Full long-form text from note_tweet when present, else None."""
+    result = _note_tweet_result(key_data)
+    if not result:
+        return None
+    text = result.get("text")
+    return text if isinstance(text, str) and text else None
+
+
 def migrate_legacy_tweet_schema(tweet):
     """Convert legacy {tweet_media_urls, tweet_video_urls} into the unified
     {tweet_media: [{type, thumbnail_url, video_url}]} list in place.
@@ -115,9 +139,12 @@ class TweetParser:
         if not item_content:
             return None
         result = item_content.get("tweet_results", {}).get("result")
-        if not result or not result.get("legacy"):
+        # Unwrap TweetWithVisibilityResults so note_tweet / legacy on the
+        # inner tweet are visible to the parser.
+        unwrapped = _unwrap_tweet_result(result)
+        if not unwrapped:
             return None
-        return cls(result)
+        return cls(unwrapped)
 
     def __init__(self, key_data):
         self._key_data = key_data
@@ -143,6 +170,11 @@ class TweetParser:
 
     @property
     def tweet_content(self):
+        # Prefer note_tweet full body when present — legacy.full_text is the
+        # truncated preview Twitter shows before "Show more".
+        note_text = note_tweet_text(self._key_data)
+        if note_text is not None:
+            return note_text
         return self._key_data["legacy"]["full_text"]
 
     @property
@@ -200,8 +232,16 @@ class TweetParser:
 
     @property
     def urls(self):
-        """Non-media link entities: t.co → expanded_url + display_url."""
-        entities = self._key_data["legacy"].get("entities", {})
+        """Non-media link entities: t.co → expanded_url + display_url.
+
+        Long-form posts keep the complete URL list on note_tweet.entity_set;
+        legacy.entities only covers the truncated preview.
+        """
+        note = _note_tweet_result(self._key_data)
+        if note is not None:
+            entities = note.get("entity_set") or {}
+        else:
+            entities = self._key_data["legacy"].get("entities", {})
         return [
             {
                 "url": u["url"],

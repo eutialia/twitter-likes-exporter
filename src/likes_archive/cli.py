@@ -306,5 +306,84 @@ def serve() -> None:
     )
 
 
+@app.command("backfill-note-text")
+def backfill_note_text_cmd(
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Discover candidates and report upgrades without writing to the DB.",
+        ),
+    ] = False,
+    tweet_id: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tweet-id",
+            help="Limit to one or more tweet IDs (repeatable). Default: scan entire archive.",
+        ),
+    ] = None,
+) -> None:
+    """Recover truncated long-form bodies (Twitter note_tweet / "Show more")."""
+    exit_code = asyncio.run(_run_backfill_note_text(dry_run=dry_run, tweet_ids=tweet_id))
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)
+
+
+async def _run_backfill_note_text(*, dry_run: bool, tweet_ids: list[str] | None) -> int:
+    from likes_archive.backfill_note_text import backfill_note_text  # noqa: PLC0415
+    from likes_archive.ingestion.tweet_detail import TweetDetailClient  # noqa: PLC0415
+
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with (
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            ) as client,
+            session_factory() as session,
+        ):
+            detail = TweetDetailClient(client, settings)
+            try:
+                result = await backfill_note_text(
+                    session=session,
+                    http=client,
+                    settings=settings,
+                    detail=detail,
+                    dry_run=dry_run,
+                    tweet_ids=tweet_ids,
+                )
+            except TokenExpiredError as exc:
+                typer.echo(
+                    f"ERROR: X session token expired (HTTP {exc.status_code}). "
+                    "Paste fresh Bearer/Cookie/CSRF into the env file and re-run.",
+                    err=True,
+                )
+                return 1
+
+            if not dry_run:
+                await session.commit()
+
+        label = "=== Note-text backfill (dry run) ===" if dry_run else "=== Note-text backfill ==="
+        typer.echo(label)
+        typer.echo(f"Scanned:     {result.scanned}")
+        typer.echo(f"Candidates:  {result.candidates}")
+        typer.echo(f"Upgraded:    {result.upgraded}")
+        typer.echo(f"Unchanged:   {result.unchanged}")
+        typer.echo(f"Failed:      {result.failed}")
+        if result.upgraded_ids:
+            sample = ", ".join(result.upgraded_ids[:20])
+            more = "..." if len(result.upgraded_ids) > 20 else ""
+            typer.echo(f"Upgraded IDs: {sample}{more}")
+        return 0 if result.failed == 0 else 1
+    except Exception as exc:
+        logger.exception("Note-text backfill failed: %s", exc)
+        typer.echo(f"ERROR: Note-text backfill failed — {exc}", err=True)
+        return 1
+    finally:
+        await engine.dispose()
+
+
 if __name__ == "__main__":
     app()

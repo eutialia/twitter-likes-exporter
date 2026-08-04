@@ -182,7 +182,11 @@ _FEATURES: dict[str, bool] = {
     "responsive_web_graphql_timeline_navigation_enabled": True,
     "view_counts_public_visibility_enabled": True,
     "view_counts_everywhere_api_enabled": True,
-    "longform_notetweets_consumption_enabled": False,
+    # Required so Likes timeline returns note_tweet.note_tweet_results with the
+    # full long-form body (legacy.full_text alone is truncated).
+    "longform_notetweets_consumption_enabled": True,
+    "longform_notetweets_rich_text_read_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
     "tweetypie_unmention_optimization_enabled": True,
     "responsive_web_uc_gql_enabled": True,
     "vibe_api_enabled": True,
