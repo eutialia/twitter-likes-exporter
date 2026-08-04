@@ -129,12 +129,13 @@ class TestMigratedSchema:
             )
         expected = {
             "tweets_content_tsv_idx",
-            "tweets_payload_gin_idx",
             "tweets_user_id_idx",
             "tweets_user_handle_idx",
-            "tweets_created_at_idx",
+            "tweets_created_at_id_idx",
         }
         assert expected <= names, f"Missing indexes: {expected - names}"
+        assert "tweets_payload_gin_idx" not in names
+        assert "tweets_created_at_idx" not in names
 
     async def test_trgm_indexes_exist(self, engine) -> None:
         async with engine.connect() as conn:
@@ -204,4 +205,4 @@ class TestMigratedSchema:
         async with engine.connect() as conn:
             row = (await conn.execute(text("SELECT version_num FROM alembic_version"))).fetchone()
         assert row is not None
-        assert row[0] == "0003"
+        assert row[0] == "0004"

@@ -6,7 +6,7 @@ display-ready fields to tweet dicts without mutating the originals.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, tzinfo
 
 from likes_archive.media.keys import media_key_for
 
@@ -18,7 +18,7 @@ def avatar_url(tweet: dict, base_url: str) -> str:
 
 
 def thumb_url(item: dict, base_url: str) -> str:
-    """Return the local URL for a media item's thumbnail."""
+    """Return the local URL for a media item's thumbnail / still."""
     key = media_key_for(item["thumbnail_url"], "thumb")
     return base_url + "/" + key
 
@@ -62,7 +62,12 @@ def _humanize(dt: datetime, now: datetime) -> str:
     return dt.strftime(_ABS_FMT)
 
 
-def add_local_time(tweet: dict) -> dict:
+def add_local_time(
+    tweet: dict,
+    *,
+    tz: tzinfo | None = None,
+    now: datetime | None = None,
+) -> dict:
     """Return the tweet dict with display-time fields added.
 
     Parses ``tweet_created_at`` (Twitter format) into the server's local zone and
@@ -71,15 +76,18 @@ def add_local_time(tweet: dict) -> dict:
       - ``created_at_abs``   — full absolute time (tooltip), e.g. "Jan 01, 2024, 22:22"
       - ``created_at_iso``   — ISO 8601 (the ``<time datetime>`` value)
 
-    Falls back to the raw string on parse failure. The input dict is not mutated.
+    Pass *tz* / *now* once per request when formatting a page of tweets so
+    ``get_localzone()`` is not called fifty times. Falls back to the raw string
+    on parse failure. The input dict is not mutated.
     """
     from tzlocal import get_localzone
 
     raw: str = tweet.get("tweet_created_at", "")
     try:
-        tz = get_localzone()
-        dt = datetime.strptime(raw, "%a %b %d %H:%M:%S %z %Y").astimezone(tz)
-        display = _humanize(dt, datetime.now(tz))
+        zone = tz if tz is not None else get_localzone()
+        dt = datetime.strptime(raw, "%a %b %d %H:%M:%S %z %Y").astimezone(zone)
+        clock = now if now is not None else datetime.now(zone)
+        display = _humanize(dt, clock)
         absolute = dt.strftime(_ABS_FMT)
         iso = dt.isoformat()
     except (ValueError, OSError):
@@ -91,3 +99,13 @@ def add_local_time(tweet: dict) -> dict:
         "created_at_abs": absolute,
         "created_at_iso": iso,
     }
+
+
+def stamp_local_times(tweets: list[dict]) -> list[dict]:
+    """Apply :func:`add_local_time` to every tweet, sharing one tz/now snapshot."""
+    from tzlocal import get_localzone
+
+    zone = get_localzone()
+    clock = datetime.now(zone)
+    return [add_local_time(t, tz=zone, now=clock) for t in tweets]
+

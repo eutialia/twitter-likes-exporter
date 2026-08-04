@@ -98,10 +98,20 @@ class TweetRepository:
         ordering on ``tweet_id`` would mis-sort (see regression test). An optional
         ``year`` restricts results to tweets created in that calendar year (UTC).
         """
+        # Year is a half-open UTC range so the created_at index can be used
+        # (EXTRACT(YEAR FROM ...) cannot).
+        year_start: datetime | None = None
+        year_end: datetime | None = None
+        if year is not None:
+            year_start = datetime(year, 1, 1, tzinfo=UTC)
+            year_end = datetime(year + 1, 1, 1, tzinfo=UTC)
+
         sql = text("""
             SELECT payload
             FROM tweets
-            WHERE (CAST(:year AS int) IS NULL OR EXTRACT(YEAR FROM created_at) = :year)
+            WHERE (CAST(:year_start AS timestamptz) IS NULL
+                   OR (created_at >= CAST(:year_start AS timestamptz)
+                       AND created_at < CAST(:year_end AS timestamptz)))
               AND (
                     CAST(:before_created_at AS timestamptz) IS NULL
                  OR (created_at, tweet_id)
@@ -115,7 +125,8 @@ class TweetRepository:
             {
                 "before_created_at": before_created_at,
                 "before_tweet_id": before_tweet_id,
-                "year": year,
+                "year_start": year_start,
+                "year_end": year_end,
                 "limit": limit,
             },
         )
@@ -133,18 +144,45 @@ class TweetRepository:
         return [int(r.yr) for r in rows.fetchall()]
 
     async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
-        """FTS (stemmed) + pg_trgm fuzzy search over the parent tweet's content."""
-        sql = text("""
+        """FTS (stemmed) first; trigram fuzzy only if FTS underfills the page.
+
+        Running ``@@ OR similarity(...)`` in one query often forces a weaker plan
+        on large archives. Two short queries keeps the common path index-only.
+        """
+        fts_sql = text("""
             SELECT payload,
                    ts_rank(content_tsv, plainto_tsquery('english', :q)) AS rank
             FROM tweets
             WHERE content_tsv @@ plainto_tsquery('english', :q)
-               OR similarity(payload->>'tweet_content', :q) > 0.15
             ORDER BY rank DESC, tweet_id DESC
             LIMIT :limit
         """)
-        rows = await self._session.execute(sql, {"q": query, "limit": limit})
-        return [_row_payload(r.payload) for r in rows.fetchall()]
+        rows = await self._session.execute(fts_sql, {"q": query, "limit": limit})
+        hits = [_row_payload(r.payload) for r in rows.fetchall()]
+        if len(hits) >= limit:
+            return hits
+
+        seen = {t["tweet_id"] for t in hits}
+        # Top up with fuzzy matches; exclude ids already returned.
+        trgm_sql = text("""
+            SELECT payload,
+                   similarity(payload->>'tweet_content', :q) AS rank
+            FROM tweets
+            WHERE similarity(payload->>'tweet_content', :q) > 0.15
+            ORDER BY rank DESC, tweet_id DESC
+            LIMIT :limit
+        """)
+        more = await self._session.execute(trgm_sql, {"q": query, "limit": limit})
+        for r in more.fetchall():
+            payload = _row_payload(r.payload)
+            tid = payload.get("tweet_id")
+            if tid in seen:
+                continue
+            hits.append(payload)
+            seen.add(tid)
+            if len(hits) >= limit:
+                break
+        return hits
 
 
 async def record_scrape_run(

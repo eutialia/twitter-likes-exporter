@@ -11,12 +11,13 @@
            src="{{ thumb }}" alt="">
     </button>
   {% elif item.type == "animated_gif" %}
+    {# src is armed by masonry.js only while near the viewport (data-src). #}
     <button type="button" class="media_btn media_btn--gif"
             data-lb-type="gif" data-lb-src="{{ murl }}" aria-label="Open GIF">
-      <video autoplay loop muted playsinline preload="none"
+      <video loop muted playsinline preload="none"
              {% if item.width is not none and item.width is defined %}width="{{ item.width }}" {% endif %}
              {% if item.height is not none and item.height is defined %}height="{{ item.height }}" {% endif %}
-             poster="{{ thumb }}" src="{{ murl }}"></video>
+             poster="{{ thumb }}" data-src="{{ murl }}"></video>
       <span class="media_badge" aria-hidden="true">GIF</span>
     </button>
   {% else %}

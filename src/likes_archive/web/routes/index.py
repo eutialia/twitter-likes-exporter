@@ -13,7 +13,7 @@ from likes_archive.db.engine import DbSession
 from likes_archive.db.repository import TweetRepository, is_token_expired, latest_scrape_run
 from likes_archive.rendering import dedupe_parent_media
 from likes_archive.web.topbar import cached_years
-from likes_archive.web.viewmodel import add_local_time
+from likes_archive.web.viewmodel import stamp_local_times
 
 router = APIRouter()
 
@@ -53,8 +53,9 @@ async def index(
         year=year,
     )
 
-    for i, tweet in enumerate(tweets):
-        tweets[i] = add_local_time({**tweet, "tweet_media": dedupe_parent_media(tweet)})
+    tweets = stamp_local_times(
+        [{**tweet, "tweet_media": dedupe_parent_media(tweet)} for tweet in tweets]
+    )
 
     next_cursor: tuple[str, str] | None = None
     next_page_url: str | None = None
@@ -70,7 +71,9 @@ async def index(
         next_page_url = "/?" + urlencode(params)
         next_before_created_at = iso
 
-    is_fragment = request.headers.get("HX-Request") == "true" or bool(before_created_at)
+    # Fragments only for real HTMX requests. A plain GET with cursor params still
+    # gets the full page chrome (bookmarkable deep links).
+    is_fragment = request.headers.get("HX-Request") == "true"
 
     token_expired = False
     if not is_fragment:

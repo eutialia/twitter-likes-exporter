@@ -107,6 +107,22 @@ img, video { max-width: 100%; }
   -webkit-backdrop-filter: saturate(1.6) blur(12px);
   border-bottom: 1px solid var(--border);
 }
+/* Blur is a scroll tax on phones; solid surface is enough there. */
+@media (max-width: 680px) {
+  .topbar {
+    background-color: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .topbar {
+    background-color: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 
 .topbar_inner {
   max-width: 1240px;
@@ -206,10 +222,12 @@ img, video { max-width: 100%; }
    batch is appended, shoving every card on screen. Grid tracks stay put, so
    cards already rendered never move. */
 .tweet_list {
+  /* Source of truth for horizontal gap; masonry.js reads computed column-gap. */
+  --masonry-gap: 1.1rem;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: 8px;
-  column-gap: 1.1rem;
+  column-gap: var(--masonry-gap);
   row-gap: 0; /* vertical gap is folded into each card's row span (masonry.js);
                 a real row-gap would be multiplied across every spanned track */
   align-items: start;
@@ -219,7 +237,19 @@ img, video { max-width: 100%; }
 
 /* Infinite-scroll sentinel spans all columns so it always sits below every
    card — never in a mid-grid gap where its "revealed" trigger would fire early. */
-.feed_sentinel { grid-column: 1 / -1; }
+.feed_sentinel {
+  grid-column: 1 / -1;
+  min-height: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 0 0.25rem;
+  color: var(--ink-3);
+  font-size: 0.85rem;
+}
+.feed_sentinel_label { opacity: 0; transition: opacity 0.15s; }
+.feed_sentinel.htmx-request .feed_sentinel_label { opacity: 1; }
+
 
 .tweet_single { max-width: 600px; margin: 0 auto; }
 
@@ -330,7 +360,13 @@ img, video { max-width: 100%; }
   grid-template-rows: 1fr 1fr;
   aspect-ratio: 1 / 1;
 }
-.tweet_images_wrapper.count-many { grid-template-columns: 1fr 1fr; }
+/* Reserve geometry so masonry spans don't thrash as many-images load. */
+.tweet_images_wrapper.count-many {
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  aspect-ratio: 1 / 1;
+}
+
 
 .tweet_image { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
 

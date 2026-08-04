@@ -116,7 +116,8 @@ class TestIndexRoute:
         assert resp.status_code == 200
         assert "<html" not in resp.text
 
-    def test_index_cursor_param_returns_fragment(self, tmp_path):
+    def test_index_cursor_param_without_htmx_returns_full_page(self, tmp_path):
+        # Plain GET with cursor params is bookmarkable — full chrome, not a fragment.
         with (
             patch("likes_archive.web.routes.index.TweetRepository") as MockRepo,
             patch(
@@ -137,7 +138,7 @@ class TestIndexRoute:
                 },
             )
         assert resp.status_code == 200
-        assert "<html" not in resp.text
+        assert "<html" in resp.text
 
     def test_index_empty_tweets(self, tmp_path):
         with (

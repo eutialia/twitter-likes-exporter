@@ -11,7 +11,7 @@ from likes_archive.db.engine import DbSession
 from likes_archive.db.repository import TweetRepository
 from likes_archive.rendering import dedupe_parent_media
 from likes_archive.web.topbar import cached_years
-from likes_archive.web.viewmodel import add_local_time
+from likes_archive.web.viewmodel import stamp_local_times
 
 router = APIRouter()
 
@@ -31,8 +31,9 @@ async def search(
 
     repo = TweetRepository(session)
     tweets = await repo.search(q, limit=settings.tweets_per_page)
-    for i, tweet in enumerate(tweets):
-        tweets[i] = add_local_time({**tweet, "tweet_media": dedupe_parent_media(tweet)})
+    tweets = stamp_local_times(
+        [{**tweet, "tweet_media": dedupe_parent_media(tweet)} for tweet in tweets]
+    )
 
     # KNOWN LIMITATION: search() has no cursor param — no infinite-scroll sentinel for search.
     is_fragment = request.headers.get("HX-Request") == "true"

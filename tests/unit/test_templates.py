@@ -198,14 +198,16 @@ def test_photo_renders_lightbox_image_trigger() -> None:
     assert "<img" in html
 
 
-def test_animated_gif_renders_autoplay_video() -> None:
+def test_animated_gif_renders_lazy_video_with_data_src() -> None:
+    # src is armed by masonry.js near the viewport; template only sets data-src.
     items = [_gif_item()]
     html = _render_media_collage(items)
     assert "<video" in html
-    assert "autoplay" in html
+    assert "autoplay" not in html
     assert "loop" in html
     assert "muted" in html
     assert "playsinline" in html
+    assert 'data-src="' in html
     assert 'data-lb-type="gif"' in html
 
 
